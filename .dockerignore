@@ -11,4 +11,27 @@ venv/
 
 .env
 .env.*
+
+# Database data directories
+postgres/
+postgres/data/
+*.db
+*.sqlite
+*.sqlite3
+
+# Caddy data
+caddy_config/
+caddy_data/
+
+# Logs
+*.log
+logs/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
 학습목표.md
