@@ -28,6 +28,7 @@
 ### decisions
 - id: uuid, PK
 - subject: text, NOT NULL
+- entrance_code: text, NOT NULL
 - assumption_is_auto_approved_by_votes: boolean, default true, NOT NULL
 - criteria_is_auto_approved_by_votes: boolean, default true, NOT NULL
 - assumption_min_votes_required: integer, NULL
@@ -38,11 +39,16 @@
 - admin_id: uuid, FK(users.id), NOT NULL
 
 **제약 조건:**
+- UNIQUE: entrance_code - 각 decision마다 고유한 접속 코드
+- CHECK: LENGTH(entrance_code) = 6 - 접속 코드는 정확히 6자리
 - CHECK: assumption_is_auto_approved_by_votes = true → assumption_min_votes_required IS NOT NULL
 - CHECK: criteria_is_auto_approved_by_votes = true → criteria_min_votes_required IS NOT NULL
+- CHECK: entrance_code ~ '^[A-Z0-9]{6}$'
+
 
 **설명:**
 - decision은 방(room) 역할을 함 (1:1 매칭이므로 별도 rooms 테이블 불필요)
+- entrance_code: 6자리 랜덤 접속 코드 (대소문자 구분 안 함 권장)
 - admin_id는 해당 decision의 관리자
 - 권한 체크는 서비스 레이어에서 처리
 
