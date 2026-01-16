@@ -1,0 +1,151 @@
+erDiagram
+    %% User Defined Types
+    event_status_type {
+        string value "NOT_STARTED | IN_PROGRESS | PAUSED | FINISHED"
+    }
+    
+    proposal_status_type {
+        string value "PENDING | ACCEPTED | REJECTED | DELETED"
+    }
+    
+    proposal_category_type {
+        string value "CREATION | MODIFICATION | DELETION"
+    }
+
+    %% Tables
+    users {
+        uuid id PK
+    }
+
+    decisions {
+        uuid id PK
+        text subject "NOT NULL"
+        boolean assumption_is_auto_approved_by_votes "default true, NOT NULL"
+        boolean criteria_is_auto_approved_by_votes "default true, NOT NULL"
+        int assumption_min_votes_required
+        int criteria_min_votes_required
+        event_status_type event_status "NOT NULL"
+        datetime created_at "NOT NULL"
+        datetime updated_at
+        uuid admin_id FK "NOT NULL"
+    }
+
+    answers {
+        uuid id PK
+        uuid decision_id FK "NOT NULL"
+        text content
+        int vote_cnt
+        datetime created_at "NOT NULL"
+        uuid created_by FK "NOT NULL"
+        datetime updated_at
+    }
+
+    assumptions {
+        uuid id PK
+        uuid decision_id FK "NOT NULL"
+        text content "NOT NULL"
+        datetime created_at "NOT NULL"
+        uuid created_by FK "NOT NULL"
+        datetime updated_at
+        uuid updated_by FK
+    }
+
+    criterion {
+        uuid id PK
+        uuid decision_id FK "NOT NULL"
+        text content "NOT NULL"
+        datetime created_at "NOT NULL"
+        uuid created_by FK "NOT NULL"
+        datetime updated_at
+        uuid updated_by FK
+    }
+
+    assumption_proposals {
+        uuid id PK
+        uuid decision_id FK "NOT NULL"
+        uuid assumption_id FK
+        proposal_status_type proposal_status "DEFAULT PENDING, NOT NULL"
+        proposal_category_type proposal_category "NOT NULL"
+        text proposal_content
+        int vote_cnt "default 0, NOT NULL"
+        datetime created_at
+        uuid created_by FK
+        datetime accpeted_at
+        datetime applied_at
+        uuid applied_target_id FK
+    }
+
+    criteria_proposals {
+        uuid id PK
+        uuid decision_id FK "NOT NULL"
+        uuid criteria_id FK
+        proposal_status_type proposal_status "DEFAULT PENDING, NOT NULL"
+        proposal_category_type proposal_category "NOT NULL"
+        text proposal_content
+        int vote_cnt "default 0, NOT NULL"
+        datetime created_at
+        uuid created_by FK
+        datetime accpeted_at
+        datetime applied_at
+        uuid applied_target_id FK
+    }
+
+    assumption_proposal_votes {
+        uuid id PK
+        uuid assumption_proposal_id FK
+        datetime created_at
+        uuid created_by FK
+    }
+
+    criterion_proposal_votes {
+        uuid id PK
+        uuid criterion_proposal_id FK
+        datetime created_at
+        uuid created_by FK
+    }
+
+    answer_votes {
+        uuid id PK
+        uuid answer_id FK
+        datetime created_at
+        uuid created_by FK
+    }
+
+    comments {
+        uuid id PK
+        uuid criteria_id FK
+        datetime created_at
+        uuid created_by FK
+        datetime updated_at
+    }
+
+    %% Relationships
+    users ||--o{ decisions : "admin"
+    users ||--o{ answers : "created_by"
+    users ||--o{ assumptions : "created_by"
+    users ||--o{ assumptions : "updated_by"
+    users ||--o{ criterion : "created_by"
+    users ||--o{ criterion : "updated_by"
+    users ||--o{ assumption_proposals : "created_by"
+    users ||--o{ criteria_proposals : "created_by"
+    users ||--o{ assumption_proposal_votes : "created_by"
+    users ||--o{ criterion_proposal_votes : "created_by"
+    users ||--o{ answer_votes : "created_by"
+    users ||--o{ comments : "created_by"
+
+    decisions ||--o{ answers : "has"
+    decisions ||--o{ assumptions : "has"
+    decisions ||--o{ criterion : "has"
+    decisions ||--o{ assumption_proposals : "has"
+    decisions ||--o{ criteria_proposals : "has"
+
+    assumptions ||--o{ assumption_proposals : "references"
+    assumptions ||--o{ assumption_proposals : "applied_target"
+
+    criterion ||--o{ criteria_proposals : "references"
+    criterion ||--o{ criteria_proposals : "applied_target"
+    criterion ||--o{ comments : "has"
+
+    assumption_proposals ||--o{ assumption_proposal_votes : "has"
+    criteria_proposals ||--o{ criterion_proposal_votes : "has"
+    answers ||--o{ answer_votes : "has"

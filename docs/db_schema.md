@@ -1,0 +1,115 @@
+- User Defined Type
+    - event_status_type
+        - NOT_STARTED
+        - IN_PROGRESS
+        - PAUSED
+        - FINISHED
+    - proposal_status_type
+        - PENDING
+        - ACCEPTED
+        - REJECTED
+        - DELETED
+    - proposal_category_type
+        - CREATION
+        - MODIFICATION
+        - DELETION
+- Table
+    - users
+    - decisions
+        - id: uuid, PK
+        - subject: text, NOT NULL
+        - assumption_is_auto_approved_by_votes: boolean, default true, NOT NULL
+        - criteria_is_auto_approved_by_votes: boolean, default true, NOT NULL
+        - assumption_min_votes_required: int
+        - criteria_min_votes_required: int
+        - event_status: event_status_type(UDT) NOT NULL
+        - created_at: datetime NOT NULL
+        - updated_at: datetime
+        - admin_id: FK(users.id) NOT NULL
+        - 제약 조건 + RLS
+            - CHECK(assumption_is_auto_approved_by_votes이 true면, assumption_min_votes_required은 NOT NULL)
+            - CHECK(criteria_is_auto_approved_by_votes이 true면, criteria_min_votes_required은 NOT NULL)
+            - admin만 수정 가능
+    - answers
+        - id: uuid, PK
+        - decision_id: FK(decisions.id) NOT NULL
+        - content: text
+        - vote_cnt: int
+        - created_at: datetime NOT NULL
+        - created_by: FK(users.id) NOT NULL
+        - updated_at:
+        - 제약 조건 + RLS
+            - admin만 추가/수정 가능
+    - assumptions
+        - id: uuid, PK
+        - decision_id: FK(decisions.id) NOT NULL
+        - content: text NOT NULL
+        - created_at: datetime NOT NULL
+        - created_by: FK(users.id) NOT NULL
+        - updated_at:
+        - updated_by: FK(users.id)
+    - criterion
+        - id: uuid, PK
+        - decision_id: FK(decisions.id) NOT NULL
+        - content: text NOT NULL
+        - created_at: datetime NOT NULL
+        - created_by: FK(users.id) NOT NULL
+        - updated_at:
+        - updated_by: FK(users.id)
+    - assumption_proposals
+        - id: uuid, PK
+        - decision_id: FK(decisions.id) NOT NULL
+        - assumption_id: FK(assumptions.id)
+        - proposal_status: proposal_status_type, DEFAULT PENDING, NOT NULL (관리자가 추가할 때는 바로 ACCPETED 예정)
+        - proposal_category: proposal_category_type, NOT NULL
+        - proposal_content: text, NULL
+        - vote_cnt: int default 0, NOT NULL
+        - created_at:
+        - created_by: FK(users.id)
+        - accpeted_at:
+        - applied_at:
+        - applied_target_id: FK(assumptions.id)
+        - 제약 조건
+            - proposal_category == CREATION → assumption_id == NULL
+            - proposal_category != CREATION → assumption_id != NULL
+            - proposal_category == DELETION → proposal_content == NULL
+            - proposal_category != DELETION → proposal_content != NULL
+    - criteria_proposals
+        - id: uuid, PK
+        - decision_id: FK(decisions.id) NOT NULL
+        - criteria_id: FK(criterion.id)
+        - proposal_status: proposal_status_type, DEFAULT PENDING, NOT NULL (관리자가 추가할 때는 바로 ACCPETED 예정)
+        - proposal_category: proposal_category_type, NOT NULL
+        - proposal_content: text, NULL
+        - vote_cnt: int default 0, NOT NULL
+        - created_at:
+        - created_by: FK(users.id)
+        - accpeted_at:
+        - applied_at:
+        - applied_target_id: FK(criterion.id)
+        - 제약 조건
+            - proposal_category == CREATION → criteria_id == NULL
+            - proposal_category != CREATION → criteria_id != NULL
+            - proposal_category == DELETION → proposal_content == NULL
+            - proposal_category != DELETION → proposal_content != NULL
+    - assumption_proposal_votes
+        - id: uuid, PK
+        - assumption_proposal_id: FK(assumption_proposals.id)
+        - created_at:
+        - created_by: FK(users.id)
+    - criterion_proposal_votes
+        - id: uuid, PK
+        - criterion_proposal_id: FK(criterion_proposals.id)
+        - created_at:
+        - created_by: FK(users.id)
+    - answer_votes
+        - id: uuid, PK
+        - answer_id: FK(answers.id)
+        - created_at:
+        - created_by: FK(users.id)
+    - comments
+        - id: uuid, PK
+        - criteria_id: FK(criterion.id)
+        - created_at:
+        - created_by: FK(users.id)
+        - updated_at:
