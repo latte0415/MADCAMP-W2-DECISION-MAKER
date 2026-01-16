@@ -47,6 +47,12 @@ venv.bak/
 *.db
 *.sqlite
 *.sqlite3
+postgres/data/
+postgres/
+
+# Caddy data
+caddy_data/
+caddy_config/
 
 # Logs
 *.log
@@ -76,3 +82,5 @@ dmypy.json
 # FastAPI specific
 *.pyc
 __pycache__/
+
+학습목표.md
