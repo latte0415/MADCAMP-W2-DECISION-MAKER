@@ -1,4 +1,5 @@
 import uuid
+from datetime import datetime
 from sqlalchemy import (
     String, Boolean, DateTime, ForeignKey,
     UniqueConstraint, Index, func
@@ -20,7 +21,7 @@ class User(Base):
     is_active: Mapped[bool] = mapped_column(
         Boolean, nullable=False, server_default="true"
     )
-    created_at: Mapped[object] = mapped_column(
+    created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
 
@@ -52,7 +53,7 @@ class UserIdentity(Base):
     provider_user_id: Mapped[str] = mapped_column(String, nullable=False)
     email: Mapped[str | None] = mapped_column(String, nullable=True)
 
-    created_at: Mapped[object] = mapped_column(
+    created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
 
@@ -76,9 +77,9 @@ class RefreshToken(Base):
     )
 
     token_hash: Mapped[str] = mapped_column(String, nullable=False)
-    expires_at: Mapped[object] = mapped_column(DateTime(timezone=True), nullable=False)
-    revoked_at: Mapped[object | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    created_at: Mapped[object] = mapped_column(
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
 

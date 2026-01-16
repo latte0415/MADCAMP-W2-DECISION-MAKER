@@ -16,7 +16,15 @@ if config.config_file_name is not None:
 
 # 모델 메타데이터 연결 (중요)
 from app.db import Base  # noqa: E402
-from app.models import auth  # noqa: F401,E402  (테이블 등록 목적)
+# 모든 모델을 import하여 테이블과 ENUM 타입이 등록되도록 함
+from app.models import (  # noqa: F401,E402
+    auth,
+    event,
+    content,
+    proposal,
+    vote,
+    comment,
+)
 
 target_metadata = Base.metadata
 
