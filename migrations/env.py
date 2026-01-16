@@ -26,7 +26,8 @@ def get_url() -> str:
     if not url:
         raise RuntimeError("DATABASE_URL is not set")
     # Alembic은 postgresql:// 형태를 기대하는 경우가 많음
-    return url.replace("postgresql+psycopg://", "postgresql://")
+    return url
+    # return url.replace("postgresql+psycopg://", "postgresql://")
 
 
 def run_migrations_offline() -> None:
