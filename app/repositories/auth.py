@@ -258,7 +258,7 @@ class RefreshTokenRepository:
             .values(revoked_at=revoked_at)
         )
         result = self.db.execute(stmt)
-        return len(result.scalars().all())
+        return result.rowcount or 0
 
     def revoke_all_for_user(self, *, user_id: UUID, revoked_at: datetime) -> int:
         """
@@ -273,7 +273,7 @@ class RefreshTokenRepository:
             .values(revoked_at=revoked_at)
         )
         result = self.db.execute(stmt)
-        return len(result.scalars().all())
+        return result.rowcount or 0
 
     def delete_expired_before(self, *, cutoff: datetime) -> int:
         """
@@ -285,4 +285,4 @@ class RefreshTokenRepository:
             RefreshToken.revoked_at.is_not(None),
         )
         result = self.db.execute(stmt)
-        return len(result.scalars().all())
+        return result.rowcount or 0

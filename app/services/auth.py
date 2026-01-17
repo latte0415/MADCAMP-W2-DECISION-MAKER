@@ -121,13 +121,14 @@ class AuthService:
         - Create user + local identity within a transaction
         - Issue tokens and persist refresh token hash
         """
-        # Fast-fail check (still keep DB constraints as ultimate guard)
-        if self.user_repo.get_by_email(email):
-            raise EmailAlreadyExists()
 
         pw_hash = hash_password(password)
 
         with self.db.begin():
+                    # Fast-fail check (still keep DB constraints as ultimate guard)
+            if self.user_repo.get_by_email(email):
+                raise EmailAlreadyExists()
+
             try:
                 user = self.user_repo.create(email=email, password_hash=pw_hash)
                 self.identity_repo.create_local(user_id=user.id, email=email)
@@ -160,27 +161,29 @@ class AuthService:
         - Verify password against user's password_hash
         - Issue new tokens and store refresh token hash
         """
-        identity = self.identity_repo.get_local_by_email_with_user(email)
-        if not identity or not identity.user:
-            google_identity = self.identity_repo.get_by_provider_and_email_with_user(
-            provider="google",
-            email=email,
-            )
 
-            if google_identity and google_identity.user and google_identity.user.is_active:
-                raise LocalLoginNotAvailable(provider="google")
-
-            raise InvalidCredentials()
-
-        user = identity.user
-
-        if not user.is_active:
-            raise InactiveUser()
-
-        if not user.password_hash or not verify_password(password, user.password_hash):
-            raise InvalidCredentials()
 
         with self.db.begin():
+            identity = self.identity_repo.get_local_by_email_with_user(email)
+            if not identity or not identity.user:
+                google_identity = self.identity_repo.get_by_provider_and_email_with_user(
+                provider="google",
+                email=email,
+                )
+
+                if google_identity and google_identity.user and google_identity.user.is_active:
+                    raise LocalLoginNotAvailable(provider="google")
+
+                raise InvalidCredentials()
+
+            user = identity.user
+
+            if not user.is_active:
+                raise InactiveUser()
+
+            if not user.password_hash or not verify_password(password, user.password_hash):
+                raise InvalidCredentials()
+            
             access, refresh, refresh_expires_at = self._issue_tokens_for_user(
                 user_id=user.id,
                 email=user.email,
