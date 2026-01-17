@@ -130,6 +130,20 @@ class UserIdentityRepository:
             UserIdentity.provider_user_id == provider_user_id,
         )
         return self.db.execute(stmt).scalar_one_or_none()
+    
+    def get_by_provider_user_id_with_user(self, *, provider: str, provider_user_id: str) -> Optional[UserIdentity]:
+        """
+        Eager loading version of above.
+        """
+        stmt = (
+            select(UserIdentity)
+            .options(joinedload(UserIdentity.user))
+            .where(
+                UserIdentity.provider == provider,
+                UserIdentity.provider_user_id == provider_user_id,
+            )
+        )
+        return self.db.execute(stmt).scalar_one_or_none()
 
     def create_local(self, *, user_id: UUID, email: str) -> UserIdentity:
         """
@@ -172,6 +186,17 @@ class UserIdentityRepository:
         except IntegrityError as e:
             _raise_unique_violation(e, default_field="identity")
         return identity
+    
+    def get_by_provider_and_email_with_user(self, *, provider: str, email: str) -> Optional[UserIdentity]:
+        stmt = (
+            select(UserIdentity)
+            .options(joinedload(UserIdentity.user))
+            .where(
+                UserIdentity.provider == provider,
+                UserIdentity.email == email,
+            )
+        )
+        return self.db.execute(stmt).scalar_one_or_none()
 
 
 # ---------------------------------------------------------------------

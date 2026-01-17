@@ -44,6 +44,13 @@ class LoginRequest(BaseModel):
     email: EmailStr
     password: str = Field(min_length=1, max_length=128)
 
+class GoogleLoginRequest(BaseModel):
+    """
+    Frontend sends the Google ID token (JWT) it received from Google Identity Services.
+    Backend verifies it and issues *our* access token + refresh cookie.
+    """
+    id_token: str = Field(min_length=1)
+
 
 # -----------------------------
 # Responses

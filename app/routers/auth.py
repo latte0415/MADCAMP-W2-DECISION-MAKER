@@ -12,12 +12,15 @@ from app.schemas.auth import (
     SignupRequest,
     TokenResponse,
     UserResponse,
+    GoogleLoginRequest
 )
 from app.services.auth import (
     AuthService,
     EmailAlreadyExists,
     InactiveUser,
     InvalidCredentials,
+    InvalidGoogleToken,
+    LocalLoginNotAvailable,
     InvalidRefreshToken,
 )
 
@@ -86,6 +89,11 @@ def login(
 ) -> TokenResponse:
     try:
         result = service.login(email=req.email, password=req.password)
+    except LocalLoginNotAvailable:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="This email is registered via Google. Please log in with Google.",
+        )
     except InvalidCredentials:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
     except InactiveUser:
@@ -99,6 +107,31 @@ def login(
         user=result.user,
     )
 
+@router.post("/google", response_model=TokenResponse)
+def login_with_google(
+    req: GoogleLoginRequest,
+    response: Response,
+    service: AuthService = Depends(get_auth_service),
+) -> TokenResponse:
+    """
+    Google login:
+    - frontend sends Google ID token
+    - backend verifies it and issues our access token + sets refresh cookie
+    """
+    try:
+        result = service.login_google(id_token=req.id_token)
+    except InvalidGoogleToken:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid Google token")
+    except InactiveUser:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="User is inactive")
+
+    _set_refresh_cookie(response, result.refresh_token)
+
+    return TokenResponse(
+        access_token=result.access_token,
+        token_type="bearer",
+        user=result.user,
+    )
 
 @router.post("/refresh", response_model=TokenResponse)
 def refresh(
