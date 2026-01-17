@@ -8,7 +8,7 @@ services:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     volumes:
-      - ./postgres/data:/var/lib/postgresql/data
+      - decision_pgdata:/var/lib/postgresql/data
     networks:
       - appnet
     healthcheck:
@@ -52,3 +52,6 @@ services:
 networks:
   appnet:
     driver: bridge
+
+volumes:
+  decision_pgdata:
