@@ -44,5 +44,5 @@ app.add_middleware( # 테스트용
     allow_headers=["*"],
 )
 
-app.include_router(auth_router, prefix="/api/auth", tags=["auth"])
-app.include_router(event_router, prefix="/api", tags=["events"])
+app.include_router(auth_router, prefix="/v1/auth", tags=["auth"])
+app.include_router(event_router, prefix="/v1", tags=["events"])

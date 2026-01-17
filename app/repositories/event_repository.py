@@ -1,4 +1,5 @@
 from sqlalchemy.orm import Session
+from sqlalchemy import select
 
 from app.models.event import Event
 
@@ -13,3 +14,9 @@ class EventRepository:
         self.db.commit()
         self.db.refresh(event)
         return event
+
+    def exists_by_entrance_code(self, entrance_code: str) -> bool:
+        """입장 코드 중복 확인"""
+        stmt = select(Event).where(Event.entrance_code == entrance_code)
+        result = self.db.execute(stmt)
+        return result.scalar_one_or_none() is not None

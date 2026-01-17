@@ -1,8 +1,10 @@
+import random
+import string
 from uuid import UUID
 from typing import List
 from sqlalchemy.orm import Session
 
-from app.models.event import Event, Option
+from app.models.event import Event, Option, EventStatusType
 from app.models.content import Assumption, Criterion
 from app.dependencies.aggregate_repositories import EventAggregateRepositories
 from app.schemas.event import (
@@ -82,6 +84,24 @@ class EventService:
         ]
         return self.repos.criterion.create_criteria(criteria)
 
+    def check_entrance_code_availability(self, entrance_code: str) -> bool:
+        """입장 코드 사용 가능 여부 확인 (중복이 없으면 True)"""
+        return not self.repos.event.exists_by_entrance_code(entrance_code)
+
+    def get_random_code(self) -> str:
+        """
+        랜덤 코드 생성 (중복 검사 포함)
+        최대 30회 시도하여 중복이 없는 코드를 반환
+        """
+        MAX_ATTEMPTS = 30
+        for _ in range(MAX_ATTEMPTS):
+            code = ''.join(random.choices(string.ascii_uppercase + string.digits, k=6))
+            if not self.repos.event.exists_by_entrance_code(code):
+                return code
+        
+        # 30회 시도 후에도 중복이면 예외 발생 (매우 드문 경우)
+        raise ValueError("Failed to generate unique entrance code after 30 attempts")
+
     def _create_event_from_request(
         self,
         request: EventCreateRequest,
@@ -98,7 +118,7 @@ class EventService:
             assumption_min_votes_required=request.assumption_min_votes_required,
             criteria_min_votes_required=request.criteria_min_votes_required,
             conclusion_approval_threshold_percent=request.conclusion_approval_threshold_percent,
-            event_status=request.event_status,
+            event_status=EventStatusType.NOT_STARTED,
             max_membership=request.max_membership,
             admin_id=admin_id,
         )

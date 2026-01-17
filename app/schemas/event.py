@@ -22,6 +22,23 @@ class CriterionAttachRequest(BaseModel):
 
 
 # ============================================================================
+# Entrance Code Schemas
+# ============================================================================
+
+class EntranceCodeCheckRequest(BaseModel):
+    entrance_code: str = Field(..., min_length=6, max_length=6, pattern="^[A-Z0-9]{6}$")
+
+
+class EntranceCodeCheckResponse(BaseModel):
+    entrance_code: str
+    is_available: bool
+
+
+class EntranceCodeGenerateResponse(BaseModel):
+    code: str
+
+
+# ============================================================================
 # Event Creation Request Schema
 # ============================================================================
 
@@ -35,7 +52,6 @@ class EventCreateRequest(BaseModel):
     assumption_min_votes_required: int | None = None
     criteria_min_votes_required: int | None = None
     conclusion_approval_threshold_percent: int | None = Field(None, ge=1, le=100)
-    event_status: EventStatusType = EventStatusType.NOT_STARTED
     max_membership: int = Field(..., gt=0)
     options: List[OptionAttachRequest] = Field(default_factory=list)
     assumptions: List[AssumptionAttachRequest] = Field(default_factory=list)
