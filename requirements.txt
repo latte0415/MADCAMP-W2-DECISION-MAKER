@@ -1,33 +1,41 @@
+# Core web framework
+fastapi==0.128.0
+uvicorn[standard]==0.24.0
+starlette==0.50.0
+
+# Database
+SQLAlchemy==2.0.45
 alembic==1.18.1
+psycopg[binary]>=3.1
+
+# Validation & Schema
+pydantic==2.12.5
+pydantic_core==2.41.5
+email-validator>=2.0.0
+
+# Authentication & Security
+python-jose[cryptography]>=3.3.0  # JWT 토큰 처리
+passlib[bcrypt]>=1.7.4             # 비밀번호 해싱
+google-auth>=2.0.0
+requests>=2.31.0                   # google-auth의 HTTP 요청을 위해 필요
+
+# Utilities
+python-dotenv==1.2.1
+python-multipart>=0.0.6             # Form 데이터 처리
+
+# Dependencies
 annotated-doc==0.0.4
 annotated-types==0.7.0
 anyio==4.12.1
 click==8.3.1
-fastapi==0.128.0
 h11==0.16.0
 httptools==0.7.1
 idna==3.11
 Mako==1.3.10
 MarkupSafe==3.0.3
-psycopg==3.3.2
-psycopg-binary==3.3.2
-pydantic==2.12.5
-pydantic_core==2.41.5
-python-dotenv==1.2.1
 PyYAML==6.0.3
-SQLAlchemy==2.0.45
-starlette==0.50.0
 typing-inspection==0.4.2
 typing_extensions==4.15.0
-uvicorn[standard]==0.24.0
-SQLAlchemy>=2.0
-alembic>=1.13
-psycopg[binary]>=3.1
-python-dotenv>=1.0
-python-jose[cryptography]>=3.3.0  # JWT 토큰 처리
-passlib[bcrypt]>=1.7.4             # 비밀번호 해싱
-python-multipart>=0.0.6             # Form 데이터 처리 (필요시)
 uvloop==0.22.1
 watchfiles==1.1.1
 websockets==16.0
-google-auth>=2.0.0
