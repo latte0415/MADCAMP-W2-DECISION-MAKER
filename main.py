@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from os import getenv
 
 from app.routers.dev import router as dev_router
+from app.routers.auth import router as auth_router
 
 app = FastAPI()
 
@@ -33,3 +34,13 @@ async def health():
 
 # Dev 라우터 등록
 app.include_router(dev_router, prefix="/dev", tags=["dev"])
+
+app.add_middleware( # 테스트용
+    CORSMiddleware,
+    allow_origins=["http://localhost:5173"],  # React dev server
+    allow_credentials=True,                   # MUST be True for cookies
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+app.include_router(auth.router, prefix="/api/auth", tags=["auth"])

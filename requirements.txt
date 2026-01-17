@@ -19,7 +19,14 @@ SQLAlchemy==2.0.45
 starlette==0.50.0
 typing-inspection==0.4.2
 typing_extensions==4.15.0
-uvicorn==0.24.0
+uvicorn[standard]==0.24.0
+SQLAlchemy>=2.0
+alembic>=1.13
+psycopg[binary]>=3.1
+python-dotenv>=1.0
+python-jose[cryptography]>=3.3.0  # JWT 토큰 처리
+passlib[bcrypt]>=1.7.4             # 비밀번호 해싱
+python-multipart>=0.0.6             # Form 데이터 처리 (필요시)
 uvloop==0.22.1
 watchfiles==1.1.1
 websockets==16.0
