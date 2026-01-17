@@ -30,13 +30,29 @@ target_metadata = Base.metadata
 
 
 def get_url() -> str:
-    url = os.getenv("DATABASE_URL", "")
-    if not url:
-        raise RuntimeError("DATABASE_URL is not set")
-    # Alembic은 postgresql:// 형태를 기대하는 경우가 많음
-    return url
-    # return url.replace("postgresql+psycopg://", "postgresql://")
+    """
+    Priority:
+    1) DATABASE_URL (explicit override; useful for one-off exec)
+    2) DATABASE_URL_OWNER (for migrations / DDL)
+    3) DATABASE_URL_RUNTIME (fallback)
+    """
+    url = (
+        os.getenv("DATABASE_URL")
+        or os.getenv("DATABASE_URL_OWNER")
+        or os.getenv("DATABASE_URL_RUNTIME")
+        or ""
+    ).strip()
 
+    if not url:
+        raise RuntimeError(
+            "Database URL is not set. Set DATABASE_URL (preferred override) "
+            "or DATABASE_URL_OWNER / DATABASE_URL_RUNTIME."
+        )
+
+    # 필요하면 아래 변환을 켜도 됨 (일단은 그대로 두는 걸 추천)
+    # url = url.replace("postgresql+psycopg://", "postgresql://")
+
+    return url
 
 def run_migrations_offline() -> None:
     url = get_url()
