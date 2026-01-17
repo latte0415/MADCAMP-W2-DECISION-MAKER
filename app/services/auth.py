@@ -25,7 +25,7 @@ from app.utils.security import (
     verify_password,
     verify_token,
 )
-
+from app.utils.google_auth import GoogleAuthError, verify_google_id_token
 
 # ---------------------------------------------------------------------
 # Service-level errors (router maps these to HTTP responses)
@@ -50,6 +50,15 @@ class InactiveUser(AuthServiceError):
 class InvalidRefreshToken(AuthServiceError):
     pass
 
+class InvalidGoogleToken(AuthServiceError):
+    pass
+
+class LocalLoginNotAvailable(AuthServiceError):
+    '''
+    A linked google account exists for the given email, but not a local one.
+    '''
+    def __init__(self, provider: str = "google"):
+        self.provider = provider
 
 # ---------------------------------------------------------------------
 # Return type for service methods (router sets cookie from refresh_token)
@@ -113,8 +122,7 @@ class AuthService:
         - Issue tokens and persist refresh token hash
         """
         # Fast-fail check (still keep DB constraints as ultimate guard)
-        existing = self.identity_repo.get_local_by_email(email)
-        if existing:
+        if self.user_repo.get_by_email(email):
             raise EmailAlreadyExists()
 
         pw_hash = hash_password(password)
@@ -154,6 +162,14 @@ class AuthService:
         """
         identity = self.identity_repo.get_local_by_email_with_user(email)
         if not identity or not identity.user:
+            google_identity = self.identity_repo.get_by_provider_and_email_with_user(
+            provider="google",
+            email=email,
+            )
+
+            if google_identity and google_identity.user and google_identity.user.is_active:
+                raise LocalLoginNotAvailable(provider="google")
+
             raise InvalidCredentials()
 
         user = identity.user
@@ -181,6 +197,87 @@ class AuthService:
             refresh_token=refresh,
             user=CurrentUser.model_validate(user),
         )
+    
+    def login_google(self, *, id_token: str) -> AuthResult:
+        """
+        Minimal Google login:
+        - Verify Google ID token server-side
+        - Lookup by (provider="google", provider_user_id=sub)
+        - If missing, link by email if existing user with same email exists
+        - Else create new user (password_hash=None)
+        - Create google identity row
+        - Issue our tokens + store refresh hash
+        """
+        try:
+            info = verify_google_id_token(id_token)
+        except GoogleAuthError as e:
+            raise InvalidGoogleToken() from e
+
+        google_sub = info.sub
+        email = info.email  # may be None depending on scopes/settings
+
+        with self.db.begin():
+            # 1) If identity exists already, use it
+            identity = self.identity_repo.get_by_provider_user_id_with_user(
+                provider="google",
+                provider_user_id=google_sub,
+            )
+            user = None
+            if identity:
+                user = self.user_repo.get_by_id(identity.user_id)
+
+            # 2) Else link by email (collision handling) or create user
+            if user is None:
+                if email:
+                    existing_user = self.user_repo.get_by_email(email)
+                else:
+                    existing_user = None
+
+                if existing_user:
+                    user = existing_user
+                else:
+                    # Create new OAuth-first user; no local password.
+                    try:
+                        user = self.user_repo.create(email=email, password_hash=None)
+                    except UniqueViolation:
+                        # Extremely unlikely here, but if email got created concurrently, retry by email lookup.
+                        if email:
+                            user = self.user_repo.get_by_email(email)
+                        if user is None:
+                            raise
+
+                # Create Google identity for this user
+                try:
+                    self.identity_repo.create(
+                        user_id=user.id,
+                        provider="google",
+                        provider_user_id=google_sub,
+                        email=email,
+                    )
+                except UniqueViolation:
+                    # If another request created the identity concurrently, proceed (idempotent-ish)
+                    pass
+
+            if not user.is_active:
+                raise InactiveUser()
+
+            access, refresh, refresh_expires_at = self._issue_tokens_for_user(
+                user_id=user.id,
+                email=user.email or email,
+            )
+
+            self.token_repo.create(
+                user_id=user.id,
+                token_hash=hash_refresh_token(refresh),
+                expires_at=refresh_expires_at,
+            )
+
+        return AuthResult(
+            access_token=access,
+            refresh_token=refresh,
+            user=CurrentUser.model_validate(user),
+        )
+
 
     def refresh(self, *, refresh_token: str) -> AuthResult:
         """
