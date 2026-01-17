@@ -1,12 +1,65 @@
-from pydantic import BaseModel
+# app/schemas/auth.py
+
+from __future__ import annotations
+
+from datetime import datetime
 from uuid import UUID
 
+from pydantic import BaseModel, ConfigDict, EmailStr, Field
+
+
+# -----------------------------
+# User-facing models
+# -----------------------------
 
 class CurrentUser(BaseModel):
-    """현재 인증된 사용자 정보 (Context 객체)"""
+    """Minimal, response-safe user info (also usable as auth context)."""
+    model_config = ConfigDict(from_attributes=True)
+
     id: UUID
     email: str | None = None
     is_active: bool = True
 
-    class Config:
-        from_attributes = True  # SQLAlchemy 모델에서 변환 가능
+
+class UserResponse(BaseModel):
+    """Response model for GET /me."""
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    email: str | None = None
+    is_active: bool
+    created_at: datetime | None = None
+
+
+# -----------------------------
+# Requests (JSON body)
+# -----------------------------
+
+class SignupRequest(BaseModel):
+    email: EmailStr
+    password: str = Field(min_length=8, max_length=128)
+
+
+class LoginRequest(BaseModel):
+    email: EmailStr
+    password: str = Field(min_length=1, max_length=128)
+
+
+# -----------------------------
+# Responses
+# -----------------------------
+
+class TokenResponse(BaseModel):
+    """
+    Response for POST /signup, POST /login, POST /refresh.
+
+    Refresh token is stored in an HttpOnly cookie, so it is NOT included here.
+    """
+    access_token: str
+    token_type: str = "bearer"
+    user: CurrentUser
+
+
+class MessageResponse(BaseModel):
+    """Response for POST /logout."""
+    message: str
