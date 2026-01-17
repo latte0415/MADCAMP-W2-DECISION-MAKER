@@ -50,7 +50,9 @@ class Assumption(Base):
     creator = relationship("User", foreign_keys=[created_by])
     updater = relationship("User", foreign_keys=[updated_by])
     proposals = relationship(
-        "AssumptionProposal", back_populates="assumption"
+        "AssumptionProposal",
+        foreign_keys="[AssumptionProposal.assumption_id]",
+        back_populates="assumption"
     )
 
 
@@ -95,7 +97,9 @@ class Criterion(Base):
     creator = relationship("User", foreign_keys=[created_by])
     updater = relationship("User", foreign_keys=[updated_by])
     proposals = relationship(
-        "CriteriaProposal", back_populates="criterion"
+        "CriteriaProposal",
+        foreign_keys="[CriteriaProposal.criteria_id]",
+        back_populates="criterion"
     )
     conclusion_proposals = relationship(
         "ConclusionProposal", back_populates="criterion", cascade="all, delete-orphan"
