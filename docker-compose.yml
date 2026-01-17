@@ -26,7 +26,7 @@ services:
     env_file:
       - .env
     environment:
-      DATABASE_URL: postgresql+psycopg://${APP_RUNTIME_USER}:${APP_RUNTIME_PASSWORD}@db:5432/${POSTGRES_DB}
+      DATABASE_URL: ${DATABASE_URL_RUNTIME}
     depends_on:
       db:
         condition: service_healthy
