@@ -4,6 +4,7 @@ from os import getenv
 
 from app.routers.dev import router as dev_router
 from app.routers.auth import router as auth_router
+from app.routers.event import router as event_router
 
 app = FastAPI()
 
@@ -44,3 +45,4 @@ app.add_middleware( # 테스트용
 )
 
 app.include_router(auth_router, prefix="/api/auth", tags=["auth"])
+app.include_router(event_router, prefix="/api", tags=["events"])

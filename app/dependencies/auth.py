@@ -8,46 +8,17 @@ from sqlalchemy.orm import Session
 
 from app.db import get_db
 from app.models import User
-from app.repositories.auth import RefreshTokenRepository, UserIdentityRepository, UserRepository
-from app.services.auth import AuthService
-from app.utils.security import verify_token
+from app.repositories.auth import UserRepository
+
 
 # Reads: Authorization: Bearer <token>
 security = HTTPBearer(auto_error=False)
 
 
-# ---------------------------------------------------------------------
-# Repository dependencies
-# ---------------------------------------------------------------------
-
 def get_user_repository(db: Session = Depends(get_db)) -> UserRepository:
+    """UserRepository 의존성 주입"""
     return UserRepository(db)
 
-
-def get_user_identity_repository(db: Session = Depends(get_db)) -> UserIdentityRepository:
-    return UserIdentityRepository(db)
-
-
-def get_refresh_token_repository(db: Session = Depends(get_db)) -> RefreshTokenRepository:
-    return RefreshTokenRepository(db)
-
-
-# ---------------------------------------------------------------------
-# Service dependency
-# ---------------------------------------------------------------------
-
-def get_auth_service(
-    db: Session = Depends(get_db),
-    user_repo: UserRepository = Depends(get_user_repository),
-    identity_repo: UserIdentityRepository = Depends(get_user_identity_repository),
-    token_repo: RefreshTokenRepository = Depends(get_refresh_token_repository),
-) -> AuthService:
-    return AuthService(db=db, user_repo=user_repo, identity_repo=identity_repo, token_repo=token_repo)
-
-
-# ---------------------------------------------------------------------
-# Auth dependency: current user from access token
-# ---------------------------------------------------------------------
 
 def get_current_user(
     credentials: HTTPAuthorizationCredentials | None = Depends(security),
@@ -60,6 +31,8 @@ def get_current_user(
     - Verifies JWT signature/expiry/type='access'
     - Loads user from DB
     """
+    from app.utils.security import verify_token
+    
     if credentials is None or credentials.scheme.lower() != "bearer":
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
