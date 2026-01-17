@@ -12,6 +12,7 @@ from app.schemas.event import (
     OptionAttachRequest,
     AssumptionAttachRequest,
     CriterionAttachRequest,
+    EventListItemResponse,
 )
 
 
@@ -101,6 +102,83 @@ class EventService:
         
         # 30회 시도 후에도 중복이면 예외 발생 (매우 드문 경우)
         raise ValueError("Failed to generate unique entrance code after 30 attempts")
+
+    def get_events_participated(self, user_id: UUID) -> List[EventListItemResponse]:
+        """사용자가 참가한 이벤트 목록 조회 (최적화 버전)"""
+        events = self.repos.event.get_events_by_user_id(user_id)
+        
+        if not events:
+            return []
+        
+        # 모든 이벤트 ID 수집
+        event_ids = [event.id for event in events]
+        
+        # 한 번의 쿼리로 모든 참가 인원 수 조회
+        participant_counts = self.repos.event.get_participant_counts_by_event_ids(event_ids)
+        
+        # 한 번의 쿼리로 모든 멤버십 상태 조회
+        membership_statuses = self.repos.event.get_membership_statuses_by_event_ids(user_id, event_ids)
+        
+        # 기존 코드 (N+1 쿼리 문제)
+        # result = []
+        # for event in events:
+        #     # 참가 인원 카운트 (ACCEPTED만)
+        #     participant_count = self.repos.event.count_accepted_members(event.id)
+        #     
+        #     # 멤버십 상태 조회
+        #     membership_status = self.repos.event.get_membership_status(user_id, event.id)
+        #     
+        #     # 관리자 여부 확인
+        #     is_admin = event.admin_id == user_id
+        #     
+        #     # 관리자 이름 (email 사용, User 모델에 name이 없으므로)
+        #     admin_name = event.admin.email if event.admin else None
+        #     
+        #     result.append(
+        #         EventListItemResponse(
+        #             id=event.id,
+        #             decision_subject=event.decision_subject,
+        #             event_status=event.event_status,
+        #             admin_id=event.admin_id,
+        #             admin_name=admin_name,
+        #             entrance_code=event.entrance_code,
+        #             participant_count=participant_count,
+        #             is_admin=is_admin,
+        #             membership_status=membership_status,
+        #         )
+        #     )
+        # return result
+        
+        # 최적화 버전: 메모리에서 매핑
+        result = []
+        for event in events:
+            # 참가 인원 카운트 (딕셔너리에서 조회, 없으면 0)
+            participant_count = participant_counts.get(event.id, 0)
+            
+            # 멤버십 상태 (딕셔너리에서 조회, 없으면 None)
+            membership_status = membership_statuses.get(event.id)
+            
+            # 관리자 여부 확인
+            is_admin = event.admin_id == user_id
+            
+            # 관리자 이름 (email 사용, User 모델에 name이 없으므로)
+            admin_name = event.admin.email if event.admin else None
+            
+            result.append(
+                EventListItemResponse(
+                    id=event.id,
+                    decision_subject=event.decision_subject,
+                    event_status=event.event_status,
+                    admin_id=event.admin_id,
+                    admin_name=admin_name,
+                    entrance_code=event.entrance_code,
+                    participant_count=participant_count,
+                    is_admin=is_admin,
+                    membership_status=membership_status,
+                )
+            )
+        
+        return result
 
     def _create_event_from_request(
         self,
