@@ -42,6 +42,7 @@ def get_current_user(
     test_mode = getenv("TEST_MODE", "").upper() == "TRUE"
     if test_mode:
         test_user = getenv("USER", "").upper()
+        test_user = "USER1"
         if test_user in TEST_USER_IDS:
             user_id = TEST_USER_IDS[test_user]
             user = user_repo.get_by_id(user_id)

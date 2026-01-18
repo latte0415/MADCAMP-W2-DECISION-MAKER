@@ -38,6 +38,25 @@ class EventRepository:
         result = self.db.execute(stmt)
         return result.scalar_one_or_none() is not None
 
+    def get_by_entrance_code(self, entrance_code: str) -> Event | None:
+        """입장 코드로 이벤트 조회"""
+        stmt = select(Event).where(Event.entrance_code == entrance_code.upper())
+        result = self.db.execute(stmt)
+        return result.scalar_one_or_none()
+
+    def get_event_with_relations(self, event_id: UUID) -> Event | None:
+        """이벤트 조회 (options, admin 조인)"""
+        stmt = (
+            select(Event)
+            .where(Event.id == event_id)
+            .options(
+                joinedload(Event.options),
+                joinedload(Event.admin)
+            )
+        )
+        result = self.db.execute(stmt)
+        return result.unique().scalar_one_or_none()
+
     def get_events_by_user_id(self, user_id: UUID) -> List[Event]:
         """사용자가 참가한 이벤트 목록 조회 (membership이 있는 이벤트)"""
         stmt = (

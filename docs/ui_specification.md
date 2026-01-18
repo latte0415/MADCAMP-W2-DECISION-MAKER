@@ -62,11 +62,20 @@
     - membership_status: pending 중인지 여부
     - 제안: `GET /events` (현재 사용자 정보는 JWT 토큰에서 추출)
 
+- POST /events/entry:
+    - 입력: entrance_code, 현재 사용자 정보는 JWT 토큰에서 추출
+    - 로직: 
+        - entrance_code로 이벤트 조회 (events.id)
+            - 존재하지 않는 이벤트 -> "존재하지 않는 정보입니다." 에러 처리
+        - events.id 기반으로 현재 사용자의 멤버십 여부 조회
+            - 이미 존재 -> "이미 가입되었습니다."
+            - 없을 경우 -> membership PENDING 상태로 삽입. "정상적으로 신청되었습니다." 메시지 후, Home (3-0-0) 새로고침
+
 ## Event_Overview (3-1-0) (Pop-up)
 
 ### 목적
 
-- 홈 화면(Home (3-0-0)에서 뜨는 개요 창
+- 홈 화면(Home (3-0-0))에서 뜨는 개요 창
 - event 접속을 위해서 반드시 거쳐야 하는 창으로, 현재 membership 상태 처리
 
 ### 구성 요소
@@ -91,13 +100,23 @@
 
 ### API 설계
 
-- POST /events/entry
-    - 입력: users.id, entrance_code
-    - 로직
-        - event_memebership 추가 안 되어 있으면, PENDING 걸어두고 대기
-        - 추가 되어 있는데 PENDING이면 역시나 대기
-        - 추가 되어 있는데 ACCPETED면 Event_Overview (3-1-0) (Pop-up)로 이동하기 위한 정보 반환
-    - 제안: `POST /events/entry` 또는 `POST /events/join`
+- GET /events/{event_id}/overview
+    - 입력: event_id (path parameter), 현재 사용자 정보는 JWT 토큰에서 추출
+    - 출력:
+        - event: id, decision_subject, event_status, entrance_code
+        - options: List[{id, content}] (event에 연결된 선택지들)
+        - admin: id, email (admin_id로 조인)
+        - participant_count: int (event_membership에서 ACCEPTED 상태인 멤버 수)
+        - membership_status: PENDING | ACCEPTED | REJECTED (현재 사용자의 멤버십 상태)
+        - can_enter: boolean (membership_status가 ACCEPTED일 때만 true, 입장하기 버튼 활성화 여부)
+    - 로직:
+        - event_id로 event 조회
+        - event.options 조인해서 선택지 목록 반환
+        - event.admin 조인해서 관리자 정보 반환
+        - event_membership에서 ACCEPTED 상태인 멤버 수 카운트
+        - 현재 사용자의 해당 event에 대한 membership_status 조회
+        - membership_status가 ACCEPTED면 can_enter = true, 아니면 false
+    - 제안: `GET /events/{event_id}/overview`
 
 ## Event_Creation (3-2-0) (Pop-up)
 

@@ -15,3 +15,13 @@ class MembershipRepository:
         self.db.commit()
         self.db.refresh(membership)
         return membership
+
+    def get_by_user_and_event(self, user_id: UUID, event_id: UUID) -> EventMembership | None:
+        """사용자와 이벤트로 멤버십 조회"""
+        from sqlalchemy import select
+        stmt = select(EventMembership).where(
+            EventMembership.user_id == user_id,
+            EventMembership.event_id == event_id
+        )
+        result = self.db.execute(stmt)
+        return result.scalar_one_or_none()

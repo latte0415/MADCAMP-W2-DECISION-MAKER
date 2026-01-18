@@ -38,6 +38,15 @@ class EntranceCodeGenerateResponse(BaseModel):
     code: str
 
 
+class EntranceCodeEntryRequest(BaseModel):
+    entrance_code: str = Field(..., min_length=6, max_length=6, pattern="^[A-Z0-9]{6}$")
+
+
+class EventEntryResponse(BaseModel):
+    message: str
+    event_id: UUID
+
+
 # ============================================================================
 # Event Creation Request Schema
 # ============================================================================
@@ -100,3 +109,32 @@ class EventListItemResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+# ============================================================================
+# Event Overview Response Schema
+# ============================================================================
+
+class OptionInfo(BaseModel):
+    id: UUID
+    content: str
+
+    class Config:
+        from_attributes = True
+
+
+class AdminInfo(BaseModel):
+    id: UUID
+    email: str
+
+    class Config:
+        from_attributes = True
+
+
+class EventOverviewResponse(BaseModel):
+    event: dict  # id, decision_subject, event_status, entrance_code
+    options: List[OptionInfo]
+    admin: AdminInfo
+    participant_count: int
+    membership_status: MembershipStatusType | None
+    can_enter: bool
