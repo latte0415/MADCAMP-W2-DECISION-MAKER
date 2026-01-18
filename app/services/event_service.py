@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 from app.models.event import Event, Option, EventStatusType
 from app.models.content import Assumption, Criterion
 from app.dependencies.aggregate_repositories import EventAggregateRepositories
+from app.exceptions import InternalError
 from app.schemas.event import (
     EventCreateRequest,
     OptionAttachRequest,
@@ -101,7 +102,10 @@ class EventService:
                 return code
         
         # 30회 시도 후에도 중복이면 예외 발생 (매우 드문 경우)
-        raise ValueError("Failed to generate unique entrance code after 30 attempts")
+        raise InternalError(
+            message="Failed to generate unique entrance code",
+            detail="Could not generate a unique entrance code after 30 attempts. Please try again."
+        )
 
     def get_events_participated(self, user_id: UUID) -> List[EventListItemResponse]:
         """사용자가 참가한 이벤트 목록 조회 (최적화 버전)"""

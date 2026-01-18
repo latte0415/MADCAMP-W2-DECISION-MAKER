@@ -2,8 +2,10 @@ from typing import List, Dict
 from uuid import UUID
 from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import select, func
+from sqlalchemy.exc import IntegrityError, OperationalError
 
 from app.models.event import Event, EventMembership, MembershipStatusType
+from app.exceptions import ConflictError, InternalError
 
 
 class EventRepository:
@@ -12,10 +14,23 @@ class EventRepository:
 
     def create_event(self, event: Event) -> Event:
         """이벤트 생성"""
-        self.db.add(event)
-        self.db.commit()
-        self.db.refresh(event)
-        return event
+        try:
+            self.db.add(event)
+            self.db.commit()
+            self.db.refresh(event)
+            return event
+        except IntegrityError as e:
+            self.db.rollback()
+            raise ConflictError(
+                message="Event creation failed",
+                detail=f"Failed to create event: {str(e)}"
+            ) from e
+        except OperationalError as e:
+            self.db.rollback()
+            raise InternalError(
+                message="Database operation failed",
+                detail="Failed to create event due to database error"
+            ) from e
 
     def exists_by_entrance_code(self, entrance_code: str) -> bool:
         """입장 코드 중복 확인"""

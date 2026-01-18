@@ -5,8 +5,12 @@ from os import getenv
 from app.routers.dev import router as dev_router
 from app.routers.auth import router as auth_router
 from app.routers.event import router as event_router
+from app.dependencies.error_handlers import register_error_handlers
 
 app = FastAPI()
+
+# 전역 예외 핸들러 등록
+register_error_handlers(app)
 
 # CORS 설정
 cors_origins = getenv("CORS_ORIGINS", "*")
