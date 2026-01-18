@@ -1,6 +1,7 @@
 from typing import List
 from sqlalchemy.orm import Session
 
+from uuid import UUID
 from app.models.content import Assumption
 
 
@@ -15,3 +16,24 @@ class AssumptionRepository:
         for assumption in assumptions:
             self.db.refresh(assumption)
         return assumptions
+
+    def get_by_id(self, assumption_id: UUID) -> Assumption | None:
+        """전제 ID로 조회"""
+        from sqlalchemy import select
+        stmt = select(Assumption).where(Assumption.id == assumption_id)
+        result = self.db.execute(stmt)
+        return result.scalar_one_or_none()
+
+    def update_assumption(self, assumption: Assumption, updated_by: UUID) -> Assumption:
+        """전제 업데이트"""
+        from datetime import datetime, timezone
+        assumption.updated_at = datetime.now(timezone.utc)
+        assumption.updated_by = updated_by
+        self.db.commit()
+        self.db.refresh(assumption)
+        return assumption
+
+    def delete_assumption(self, assumption: Assumption) -> None:
+        """전제 삭제"""
+        self.db.delete(assumption)
+        self.db.commit()

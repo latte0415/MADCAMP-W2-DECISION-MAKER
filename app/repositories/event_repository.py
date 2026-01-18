@@ -57,6 +57,22 @@ class EventRepository:
         result = self.db.execute(stmt)
         return result.unique().scalar_one_or_none()
 
+    def get_event_with_all_relations(self, event_id: UUID) -> Event | None:
+        """이벤트 조회 (options, assumptions, criteria, admin 모두 조인)"""
+        from app.models.content import Assumption, Criterion
+        stmt = (
+            select(Event)
+            .where(Event.id == event_id)
+            .options(
+                joinedload(Event.options),
+                joinedload(Event.assumptions),
+                joinedload(Event.criteria),
+                joinedload(Event.admin)
+            )
+        )
+        result = self.db.execute(stmt)
+        return result.unique().scalar_one_or_none()
+
     def get_events_by_user_id(self, user_id: UUID) -> List[Event]:
         """사용자가 참가한 이벤트 목록 조회 (membership이 있는 이벤트)"""
         stmt = (
@@ -128,3 +144,17 @@ class EventRepository:
             membership.event_id: membership.membership_status 
             for membership in result.scalars().all()
         }
+
+    def get_by_id(self, event_id: UUID) -> Event | None:
+        """이벤트 ID로 조회"""
+        stmt = select(Event).where(Event.id == event_id)
+        result = self.db.execute(stmt)
+        return result.scalar_one_or_none()
+
+    def update_event(self, event: Event) -> Event:
+        """이벤트 업데이트"""
+        from datetime import datetime, timezone
+        event.updated_at = datetime.now(timezone.utc)
+        self.db.commit()
+        self.db.refresh(event)
+        return event
