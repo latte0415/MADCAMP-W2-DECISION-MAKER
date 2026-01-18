@@ -70,7 +70,7 @@ def signup(
     try:
         result = service.signup(email=req.email, password=req.password)
     except EmailAlreadyExists:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Email already in use")
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="이미 사용 중인 이메일입니다.")
 
     _set_refresh_cookie(response, result.refresh_token)
 
@@ -92,12 +92,12 @@ def login(
     except LocalLoginNotAvailable:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="This email is registered via Google. Please log in with Google.",
+            detail="구글 계정과 연결된 이메일입니다. 구글로 로그인해주세요.",
         )
     except InvalidCredentials:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="이메일/비밀번호가 일치하지 않습니다.")
     except InactiveUser:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="User is inactive")
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="비활성화된 사용자입니다.")
 
     _set_refresh_cookie(response, result.refresh_token)
 
@@ -121,9 +121,9 @@ def login_with_google(
     try:
         result = service.login_google(id_token=req.id_token)
     except InvalidGoogleToken:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid Google token")
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="구글 토큰 오류가 발생하였습니다.")
     except InactiveUser:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="User is inactive")
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="비활성화된 사용자입니다.")
 
     _set_refresh_cookie(response, result.refresh_token)
 
