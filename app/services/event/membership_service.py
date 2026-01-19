@@ -6,12 +6,22 @@ from sqlalchemy.orm import Session
 from app.models.event import EventMembership, MembershipStatusType
 from app.repositories.membership_repository import MembershipRepository
 from app.repositories.event_repository import EventRepository
+from app.dependencies.aggregate_repositories import EventAggregateRepositories
+from app.services.event.base import EventBaseService
 from app.exceptions import NotFoundError, ConflictError
 
 
-class MembershipService:
-    def __init__(self, db: Session, membership_repo: MembershipRepository, event_repo: EventRepository):
-        self.db = db
+class MembershipService(EventBaseService):
+    """Event Membership 관련 서비스"""
+    
+    def __init__(
+        self,
+        db: Session,
+        repos: EventAggregateRepositories,
+        membership_repo: MembershipRepository,
+        event_repo: EventRepository
+    ):
+        super().__init__(db, repos)
         self.membership_repo = membership_repo
         self.event_repo = event_repo
 
@@ -78,23 +88,6 @@ class MembershipService:
         self.db.commit()
         return event.id, "정상적으로 신청되었습니다."
 
-    def verify_admin(self, event_id: UUID, user_id: UUID) -> None:
-        """이벤트 관리자 권한 확인"""
-        from app.exceptions import ForbiddenError, NotFoundError
-        
-        event = self.event_repo.get_by_id(event_id)
-        
-        if not event:
-            raise NotFoundError(
-                message="Event not found",
-                detail=f"Event with id {event_id} not found"
-            )
-        
-        if event.admin_id != user_id:
-            raise ForbiddenError(
-                message="Forbidden",
-                detail="Only event administrator can perform this action"
-            )
 
     def approve_membership(
         self,
@@ -105,7 +98,7 @@ class MembershipService:
         """멤버십 승인"""
         from app.exceptions import ValidationError, ConflictError
         
-        # 관리자 권한 확인
+        # 관리자 권한 확인 (base 메서드 사용)
         self.verify_admin(event_id, user_id)
         
         # 멤버십 조회
@@ -155,7 +148,7 @@ class MembershipService:
         """멤버십 거부"""
         from app.exceptions import ValidationError
         
-        # 관리자 권한 확인
+        # 관리자 권한 확인 (base 메서드 사용)
         self.verify_admin(event_id, user_id)
         
         # 멤버십 조회
@@ -193,7 +186,7 @@ class MembershipService:
         """멤버십 일괄 승인"""
         from app.exceptions import ConflictError
         
-        # 관리자 권한 확인
+        # 관리자 권한 확인 (base 메서드 사용)
         self.verify_admin(event_id, user_id)
         
         # PENDING 상태 멤버십 조회
@@ -241,7 +234,7 @@ class MembershipService:
         user_id: UUID
     ) -> dict:
         """멤버십 일괄 거부"""
-        # 관리자 권한 확인
+        # 관리자 권한 확인 (base 메서드 사용)
         self.verify_admin(event_id, user_id)
         
         # PENDING 상태 멤버십 조회
@@ -273,7 +266,7 @@ class MembershipService:
         이벤트의 모든 멤버십 목록 조회 (관리자용)
         - status와 무관하게 전부 반환
         """
-        # 관리자 권한 확인
+        # 관리자 권한 확인 (base 메서드 사용)
         self.verify_admin(event_id, user_id)
         
         # 모든 멤버십 조회

@@ -4,8 +4,8 @@ from fastapi import APIRouter, Depends, status
 from sqlalchemy.orm import Session
 
 from app.models import User
-from app.services.event_service import EventService
-from app.services.membership_service import MembershipService
+from app.services.event import EventService
+from app.services.event.membership_service import MembershipService
 from app.schemas.event import (
     EventCreateRequest,
     EventResponse,
