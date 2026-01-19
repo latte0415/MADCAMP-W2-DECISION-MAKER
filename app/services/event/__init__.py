@@ -11,6 +11,7 @@ from app.services.event.creation_service import EventCreationService
 from app.services.event.overview_service import EventOverviewService
 from app.services.event.detail_service import EventDetailService
 from app.services.event.setting_service import EventSettingService
+from app.services.event.proposal_service import ProposalService
 
 
 # 모든 Service 클래스 export
@@ -21,6 +22,7 @@ __all__ = [
     "EventOverviewService",
     "EventDetailService",
     "EventSettingService",
+    "ProposalService",
     "EventService",  # 통합 클래스
 ]
 

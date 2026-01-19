@@ -81,6 +81,11 @@ class AssumptionWithProposals(BaseModel):
     """전제와 그에 대한 제안들"""
     id: UUID
     content: str
+    is_deleted: bool  # 소프트 삭제 여부
+    is_modified: bool  # 제안에 의해 수정되었는지
+    original_content: str | None  # 원본 내용 (수정된 경우)
+    modified_at: datetime | None  # 수정 시점 (applied_at)
+    deleted_at: datetime | None  # 삭제 시점 (applied_at, is_deleted=True일 때)
     proposals: List[AssumptionProposalInfo]
 
     class Config:
@@ -92,6 +97,11 @@ class CriterionWithProposals(BaseModel):
     id: UUID
     content: str
     conclusion: str | None
+    is_deleted: bool  # 소프트 삭제 여부
+    is_modified: bool  # 제안에 의해 수정되었는지
+    original_content: str | None  # 원본 내용 (수정된 경우)
+    modified_at: datetime | None  # 수정 시점 (applied_at)
+    deleted_at: datetime | None  # 삭제 시점 (applied_at, is_deleted=True일 때)
     proposals: List[CriteriaProposalInfo]
     conclusion_proposals: List[ConclusionProposalInfo]
 

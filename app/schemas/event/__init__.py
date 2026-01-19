@@ -38,6 +38,13 @@ from app.schemas.event.detail import (
     ProposalVoteInfo,
 )
 
+# Proposal schemas
+from app.schemas.event.proposal import (
+    AssumptionProposalCreateRequest,
+    AssumptionProposalResponse,
+    AssumptionProposalVoteResponse,
+)
+
 # Setting schemas
 from app.schemas.event.setting import (
     EventSettingResponse,
@@ -95,4 +102,8 @@ __all__ = [
     "MembershipResponse",
     "BulkMembershipResponse",
     "MembershipListItemResponse",
+    # Proposal
+    "AssumptionProposalCreateRequest",
+    "AssumptionProposalResponse",
+    "AssumptionProposalVoteResponse",
 ]

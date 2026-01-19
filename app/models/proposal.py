@@ -3,7 +3,8 @@ from datetime import datetime
 from enum import Enum as PyEnum
 from sqlalchemy import (
     Text, DateTime, ForeignKey, CheckConstraint,
-    UniqueConstraint, Index, func
+    # UniqueConstraint, 
+    Index, func
 )
 from sqlalchemy.dialects.postgresql import UUID, ENUM
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -27,7 +28,7 @@ class ProposalCategoryType(PyEnum):
 class AssumptionProposal(Base):
     __tablename__ = "assumption_proposals"
     __table_args__ = (
-        UniqueConstraint("assumption_id", "created_by", name="uq_assumption_proposals_assumption_user"),
+        # UniqueConstraint("assumption_id", "created_by", name="uq_assumption_proposals_assumption_user"),
         CheckConstraint(
             "(proposal_category = 'CREATION' AND assumption_id IS NULL) OR (proposal_category != 'CREATION' AND assumption_id IS NOT NULL)",
             name="ck_assumption_proposals_category_assumption_id"
@@ -99,7 +100,7 @@ class AssumptionProposal(Base):
 class CriteriaProposal(Base):
     __tablename__ = "criteria_proposals"
     __table_args__ = (
-        UniqueConstraint("criteria_id", "created_by", name="uq_criteria_proposals_criteria_user"),
+        # UniqueConstraint("criteria_id", "created_by", name="uq_criteria_proposals_criteria_user"),
         CheckConstraint(
             "(proposal_category = 'CREATION' AND criteria_id IS NULL) OR (proposal_category != 'CREATION' AND criteria_id IS NOT NULL)",
             name="ck_criteria_proposals_category_criteria_id"
@@ -171,7 +172,7 @@ class CriteriaProposal(Base):
 class ConclusionProposal(Base):
     __tablename__ = "conclusion_proposals"
     __table_args__ = (
-        UniqueConstraint("criterion_id", "created_by", name="uq_conclusion_proposals_criterion_user"),
+        # UniqueConstraint("criterion_id", "created_by", name="uq_conclusion_proposals_criterion_user"),
         Index("idx_conclusion_proposals_criterion_id", "criterion_id"),
     )
 

@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 from app.models import User
 from app.services.event import EventService
 from app.services.event.membership_service import MembershipService
+from app.services.event.proposal_service import ProposalService
 from app.schemas.event import (
     EventCreateRequest,
     EventResponse,
@@ -22,9 +23,16 @@ from app.schemas.event import (
     EventSettingResponse,
     MembershipListItemResponse,
     EventDetailResponse,
+    AssumptionProposalCreateRequest,
+    AssumptionProposalResponse,
+    AssumptionProposalVoteResponse,
 )
 from app.dependencies.auth import get_current_user
-from app.dependencies.services import get_event_service, get_membership_service
+from app.dependencies.services import (
+    get_event_service,
+    get_membership_service,
+    get_proposal_service,
+)
 
 
 router = APIRouter()
@@ -173,9 +181,75 @@ def get_event_detail(
         event_id=event_id,
         user_id=current_user.id
     )
-# TODO: POST /events/{event_id}/assumption-proposals - 전제 제안 생성
+@router.post(
+    "/events/{event_id}/assumption-proposals",
+    response_model=AssumptionProposalResponse,
+    status_code=status.HTTP_201_CREATED
+)
+def create_assumption_proposal(
+    event_id: UUID,
+    request: AssumptionProposalCreateRequest,
+    current_user: User = Depends(get_current_user),
+    proposal_service: ProposalService = Depends(get_proposal_service),
+) -> AssumptionProposalResponse:
+    """
+    전제 제안 생성 API
+    - IN_PROGRESS 상태에서만 가능
+    - ACCEPTED 멤버십 필요
+    """
+    return proposal_service.create_assumption_proposal(
+        event_id=event_id,
+        request=request,
+        user_id=current_user.id
+    )
+
+
+@router.post(
+    "/events/{event_id}/assumption-proposals/{proposal_id}/votes",
+    response_model=AssumptionProposalVoteResponse,
+    status_code=status.HTTP_201_CREATED
+)
+def create_assumption_proposal_vote(
+    event_id: UUID,
+    proposal_id: UUID,
+    current_user: User = Depends(get_current_user),
+    proposal_service: ProposalService = Depends(get_proposal_service),
+) -> AssumptionProposalVoteResponse:
+    """
+    전제 제안 투표 생성 API
+    - IN_PROGRESS 상태에서만 가능
+    - PENDING 제안에만 투표 가능
+    """
+    return proposal_service.create_assumption_proposal_vote(
+        event_id=event_id,
+        proposal_id=proposal_id,
+        user_id=current_user.id
+    )
+
+
+@router.delete(
+    "/events/{event_id}/assumption-proposals/{proposal_id}/votes",
+    response_model=AssumptionProposalVoteResponse
+)
+def delete_assumption_proposal_vote(
+    event_id: UUID,
+    proposal_id: UUID,
+    current_user: User = Depends(get_current_user),
+    proposal_service: ProposalService = Depends(get_proposal_service),
+) -> AssumptionProposalVoteResponse:
+    """
+    전제 제안 투표 삭제 API
+    - IN_PROGRESS 상태에서만 가능
+    - 본인 투표만 삭제 가능
+    """
+    return proposal_service.delete_assumption_proposal_vote(
+        event_id=event_id,
+        proposal_id=proposal_id,
+        user_id=current_user.id
+    )
+
+
 # TODO: POST /events/{event_id}/criteria-proposals - 기준 제안 생성
-# TODO: POST /events/{event_id}/assumption-proposals/{proposal_id}/votes - 전제 제안 투표
 # TODO: POST /events/{event_id}/criteria-proposals/{proposal_id}/votes - 기준 제안 투표
 # TODO: POST /events/{event_id}/criteria/{criterion_id}/conclusion-proposals - 결론 제안 생성
 # TODO: POST /events/{event_id}/conclusion-proposals/{proposal_id}/votes - 결론 제안 투표

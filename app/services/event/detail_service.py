@@ -1,7 +1,7 @@
 from uuid import UUID
 
 from app.models.event import MembershipStatusType
-from app.models.proposal import ProposalCategoryType
+from app.models.proposal import ProposalCategoryType, ProposalStatusType
 from app.services.event.base import EventBaseService
 from app.schemas.event import (
     EventDetailResponse,
@@ -129,10 +129,30 @@ class EventDetailService(EventBaseService):
         assumptions_with_proposals = []
         for assumption in event.assumptions:
             proposals = assumption_proposals_by_id.get(assumption.id, [])
+            # 제안이 적용된 경우 applied_at 정보 찾기
+            modified_at = None
+            deleted_at = None
+            if assumption.is_modified or assumption.is_deleted:
+                # 해당 assumption에 대한 ACCEPTED 제안 중 applied_at이 있는 것 찾기
+                for prop in assumption_proposals:
+                    if (prop.assumption_id == assumption.id and
+                        prop.proposal_status == ProposalStatusType.ACCEPTED and
+                        prop.applied_at is not None):
+                        if assumption.is_deleted:
+                            deleted_at = prop.applied_at
+                        elif assumption.is_modified:
+                            modified_at = prop.applied_at
+                        break
+            
             assumptions_with_proposals.append(
                 AssumptionWithProposals(
                     id=assumption.id,
                     content=assumption.content,
+                    is_deleted=assumption.is_deleted,
+                    is_modified=assumption.is_modified,
+                    original_content=assumption.original_content,
+                    modified_at=modified_at,
+                    deleted_at=deleted_at,
                     proposals=proposals
                 )
             )
@@ -170,11 +190,34 @@ class EventDetailService(EventBaseService):
                     )
                 )
             
+            # 제안이 적용된 경우 applied_at 정보 찾기
+            modified_at = None
+            deleted_at = None
+            if criterion.is_modified or criterion.is_deleted:
+                # 해당 criterion에 대한 ACCEPTED 제안 중 applied_at이 있는 것 찾기
+                criteria_proposals_all = self.repos.proposal.get_criteria_proposals_by_event_id(
+                    event_id, user_id
+                )
+                for prop in criteria_proposals_all:
+                    if (prop.criteria_id == criterion.id and
+                        prop.proposal_status == ProposalStatusType.ACCEPTED and
+                        prop.applied_at is not None):
+                        if criterion.is_deleted:
+                            deleted_at = prop.applied_at
+                        elif criterion.is_modified:
+                            modified_at = prop.applied_at
+                        break
+            
             criteria_with_proposals.append(
                 CriterionWithProposals(
                     id=criterion.id,
                     content=criterion.content,
                     conclusion=criterion.conclusion,
+                    is_deleted=criterion.is_deleted,
+                    is_modified=criterion.is_modified,
+                    original_content=criterion.original_content,
+                    modified_at=modified_at,
+                    deleted_at=deleted_at,
                     proposals=proposals,
                     conclusion_proposals=conclusion_proposals
                 )
