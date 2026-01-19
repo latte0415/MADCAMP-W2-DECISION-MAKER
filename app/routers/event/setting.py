@@ -5,10 +5,13 @@ from fastapi import APIRouter, Depends
 from app.models import User
 from app.services.event import EventService
 from app.services.event.membership_service import MembershipService
+from app.services.event.setting_service import EventSettingService
 from app.schemas.event import (
     EventResponse,
     EventUpdateRequest,
     EventSettingResponse,
+    EventStatusUpdateRequest,
+    EventStatusUpdateResponse,
     MembershipResponse,
     BulkMembershipResponse,
     MembershipListItemResponse,
@@ -17,6 +20,7 @@ from app.dependencies.auth import get_current_user
 from app.dependencies.services import (
     get_event_service,
     get_membership_service,
+    get_setting_service,
 )
 
 
@@ -198,3 +202,30 @@ def get_event_memberships(
         )
         for membership in memberships
     ]
+
+
+@router.patch(
+    "/events/{event_id}/status",
+    response_model=EventStatusUpdateResponse
+)
+def update_event_status(
+    event_id: UUID,
+    request: EventStatusUpdateRequest,
+    current_user: User = Depends(get_current_user),
+    setting_service: EventSettingService = Depends(get_setting_service),
+) -> EventStatusUpdateResponse:
+    """
+    이벤트 상태 변경 API (관리자용)
+    - 관리자 권한 필요
+    - 상태 전이 규칙:
+      - NOT_STARTED → IN_PROGRESS (시작)
+      - IN_PROGRESS → PAUSED (일시정지)
+      - PAUSED → IN_PROGRESS (재개)
+      - IN_PROGRESS → FINISHED (종료)
+      - PAUSED → FINISHED (종료)
+    """
+    return setting_service.update_event_status(
+        event_id=event_id,
+        new_status=request.status,
+        user_id=current_user.id
+    )

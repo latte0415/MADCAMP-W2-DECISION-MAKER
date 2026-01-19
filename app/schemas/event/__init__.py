@@ -49,12 +49,15 @@ from app.schemas.event.proposal import (
     ConclusionProposalCreateRequest,
     ConclusionProposalResponse,
     ConclusionProposalVoteResponse,
+    ProposalStatusUpdateRequest,
 )
 
 # Setting schemas
 from app.schemas.event.setting import (
     EventSettingResponse,
     EventUpdateRequest,
+    EventStatusUpdateRequest,
+    EventStatusUpdateResponse,
     OptionUpdateItem,
     AssumptionUpdateItem,
     CriterionUpdateItem,
@@ -127,10 +130,14 @@ __all__ = [
     "ConclusionProposalCreateRequest",
     "ConclusionProposalResponse",
     "ConclusionProposalVoteResponse",
+    "ProposalStatusUpdateRequest",
     # Comment
     "CommentCreateRequest",
     "CommentUpdateRequest",
     "CommentResponse",
     "CommentCountResponse",
     "CommentCreatorInfo",
+    # Setting
+    "EventStatusUpdateRequest",
+    "EventStatusUpdateResponse",
 ]

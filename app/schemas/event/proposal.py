@@ -124,3 +124,12 @@ class ConclusionProposalVoteResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+# ============================================================================
+# Proposal Status Update Schemas
+# ============================================================================
+
+class ProposalStatusUpdateRequest(BaseModel):
+    """제안 상태 변경 요청 (관리자용)"""
+    status: ProposalStatusType  # ACCEPTED 또는 REJECTED만 허용

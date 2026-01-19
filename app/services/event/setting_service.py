@@ -1,6 +1,8 @@
 from typing import List, TYPE_CHECKING
 from uuid import UUID
 
+from datetime import datetime, timezone
+
 from app.models.event import Event, EventStatusType, Option
 from app.models.content import Assumption, Criterion
 from app.services.event.base import EventBaseService
@@ -8,6 +10,7 @@ from app.schemas.event import (
     EventSettingResponse,
     EventUpdateRequest,
     EventResponse,
+    EventStatusUpdateResponse,
     OptionInfo,
     AssumptionInfo,
     CriterionInfo,
@@ -247,3 +250,52 @@ class EventSettingService(EventBaseService):
                 detail=f"Criterion with id {criterion_id} not found for this event"
             )
         return criterion
+
+    def update_event_status(
+        self,
+        event_id: UUID,
+        new_status: EventStatusType,
+        user_id: UUID
+    ) -> EventStatusUpdateResponse:
+        """
+        이벤트 상태 변경 (관리자용)
+        - 관리자 권한 확인
+        - 상태 전이 규칙 검증:
+          - NOT_STARTED → IN_PROGRESS (시작)
+          - IN_PROGRESS → PAUSED (일시정지)
+          - PAUSED → IN_PROGRESS (재개)
+          - IN_PROGRESS → FINISHED (종료)
+          - PAUSED → FINISHED (종료)
+        """
+        # 1. 관리자 권한 확인 및 이벤트 조회
+        event = self.verify_admin(event_id, user_id)
+
+        # 2. 현재 상태 확인
+        current_status = event.event_status
+
+        # 3. 상태 전이 규칙 검증
+        valid_transitions = {
+            EventStatusType.NOT_STARTED: [EventStatusType.IN_PROGRESS],
+            EventStatusType.IN_PROGRESS: [EventStatusType.PAUSED, EventStatusType.FINISHED],
+            EventStatusType.PAUSED: [EventStatusType.IN_PROGRESS, EventStatusType.FINISHED],
+            EventStatusType.FINISHED: [],  # FINISHED는 종료 상태이므로 변경 불가
+        }
+
+        if new_status not in valid_transitions.get(current_status, []):
+            raise ValidationError(
+                message="Invalid status transition",
+                detail=f"Cannot change status from {current_status.value} to {new_status.value}"
+            )
+
+        # 4. 상태 변경
+        event.event_status = new_status
+        event.updated_at = datetime.now(timezone.utc)
+        
+        result = self.repos.event.update_event(event)
+        self.db.commit()
+
+        return EventStatusUpdateResponse(
+            id=result.id,
+            status=result.event_status,
+            updated_at=result.updated_at
+        )

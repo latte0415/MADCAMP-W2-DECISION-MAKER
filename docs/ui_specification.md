@@ -226,8 +226,6 @@
 - 기준에 대한 결론에 대한 투표 생성하기/삭제하기
   - 제안: `POST /events/{event_id}/conclusion-proposals/{proposal_id}/votes` (생성)
   - 제안: `DELETE /events/{event_id}/conclusion-proposals/{proposal_id}/votes` (삭제)
-
-#### To Do
 - 특정 기준에 대한 코멘트 수 조회하기
   - 제안: `GET /events/{event_id}/criteria/{criterion_id}/comments/count`
 - 특정 기준에 대한 코멘트 조회하기
@@ -237,7 +235,7 @@
   - 제안: `PATCH /events/{event_id}/comments/{comment_id}` (수정)
   - 제안: `DELETE /events/{event_id}/comments/{comment_id}` (삭제)
 
-#### To Do (Not Now)
+#### To Do
 - (ADMIN) 제안 승인/기각하기
   - 제안: `PATCH /events/{event_id}/assumption-proposals/{proposal_id}/status` (전제 제안)
   - 제안: `PATCH /events/{event_id}/criteria-proposals/{proposal_id}/status` (기준 제안)

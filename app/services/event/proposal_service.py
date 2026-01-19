@@ -940,3 +940,228 @@ class ProposalService(EventBaseService):
 
         proposal.applied_at = datetime.now(timezone.utc)
         self.repos.proposal.update_conclusion_proposal(proposal)
+
+    # ============================================================================
+    # Admin Proposal Status Update Methods
+    # ============================================================================
+
+    def update_assumption_proposal_status(
+        self,
+        event_id: UUID,
+        proposal_id: UUID,
+        status: ProposalStatusType,
+        user_id: UUID
+    ) -> AssumptionProposalResponse:
+        """
+        전제 제안 상태 변경 (관리자용)
+        - 관리자 권한 확인
+        - PENDING 상태만 변경 가능
+        - ACCEPTED 시 제안 적용
+        """
+        # 1. 관리자 권한 확인
+        event = self.verify_admin(event_id, user_id)
+
+        # 2. 제안 조회 및 검증
+        proposal = self.repos.proposal.get_assumption_proposal_by_id(proposal_id)
+        if not proposal:
+            raise NotFoundError(
+                message="Proposal not found",
+                detail=f"Assumption proposal with id {proposal_id} not found"
+            )
+
+        if proposal.event_id != event_id:
+            raise NotFoundError(
+                message="Proposal not found",
+                detail="Proposal does not belong to this event"
+            )
+
+        if proposal.proposal_status != ProposalStatusType.PENDING:
+            raise ValidationError(
+                message="Invalid proposal status",
+                detail="Only PENDING proposals can have their status changed"
+            )
+
+        if status not in (ProposalStatusType.ACCEPTED, ProposalStatusType.REJECTED):
+            raise ValidationError(
+                message="Invalid status",
+                detail="Status must be ACCEPTED or REJECTED"
+            )
+
+        # 3. 상태 변경
+        proposal.proposal_status = status
+        if status == ProposalStatusType.ACCEPTED:
+            proposal.accepted_at = datetime.now(timezone.utc)
+            # 제안 적용
+            self._apply_assumption_proposal(proposal, event)
+        else:
+            # REJECTED는 상태만 변경
+            pass
+
+        self.repos.proposal.update_assumption_proposal(proposal)
+        self.db.commit()
+
+        # 4. 응답 생성
+        self.db.refresh(proposal, ['votes'])
+        vote_count = len(proposal.votes) if proposal.votes else 0
+        has_voted = any(vote.created_by == user_id for vote in (proposal.votes or []))
+
+        return AssumptionProposalResponse(
+            id=proposal.id,
+            event_id=proposal.event_id,
+            assumption_id=proposal.assumption_id,
+            proposal_status=proposal.proposal_status,
+            proposal_category=proposal.proposal_category,
+            proposal_content=proposal.proposal_content,
+            reason=proposal.reason,
+            created_at=proposal.created_at,
+            created_by=proposal.created_by,
+            vote_count=vote_count,
+            has_voted=has_voted
+        )
+
+    def update_criteria_proposal_status(
+        self,
+        event_id: UUID,
+        proposal_id: UUID,
+        status: ProposalStatusType,
+        user_id: UUID
+    ) -> CriteriaProposalResponse:
+        """
+        기준 제안 상태 변경 (관리자용)
+        - 관리자 권한 확인
+        - PENDING 상태만 변경 가능
+        - ACCEPTED 시 제안 적용
+        """
+        # 1. 관리자 권한 확인
+        event = self.verify_admin(event_id, user_id)
+
+        # 2. 제안 조회 및 검증
+        proposal = self.repos.proposal.get_criteria_proposal_by_id(proposal_id)
+        if not proposal:
+            raise NotFoundError(
+                message="Proposal not found",
+                detail=f"Criteria proposal with id {proposal_id} not found"
+            )
+
+        if proposal.event_id != event_id:
+            raise NotFoundError(
+                message="Proposal not found",
+                detail="Proposal does not belong to this event"
+            )
+
+        if proposal.proposal_status != ProposalStatusType.PENDING:
+            raise ValidationError(
+                message="Invalid proposal status",
+                detail="Only PENDING proposals can have their status changed"
+            )
+
+        if status not in (ProposalStatusType.ACCEPTED, ProposalStatusType.REJECTED):
+            raise ValidationError(
+                message="Invalid status",
+                detail="Status must be ACCEPTED or REJECTED"
+            )
+
+        # 3. 상태 변경
+        proposal.proposal_status = status
+        if status == ProposalStatusType.ACCEPTED:
+            proposal.accepted_at = datetime.now(timezone.utc)
+            # 제안 적용
+            self._apply_criteria_proposal(proposal, event)
+        else:
+            # REJECTED는 상태만 변경
+            pass
+
+        self.repos.proposal.update_criteria_proposal(proposal)
+        self.db.commit()
+
+        # 4. 응답 생성
+        self.db.refresh(proposal, ['votes'])
+        vote_count = len(proposal.votes) if proposal.votes else 0
+        has_voted = any(vote.created_by == user_id for vote in (proposal.votes or []))
+
+        return CriteriaProposalResponse(
+            id=proposal.id,
+            event_id=proposal.event_id,
+            criteria_id=proposal.criteria_id,
+            proposal_status=proposal.proposal_status,
+            proposal_category=proposal.proposal_category,
+            proposal_content=proposal.proposal_content,
+            reason=proposal.reason,
+            created_at=proposal.created_at,
+            created_by=proposal.created_by,
+            vote_count=vote_count,
+            has_voted=has_voted
+        )
+
+    def update_conclusion_proposal_status(
+        self,
+        event_id: UUID,
+        proposal_id: UUID,
+        status: ProposalStatusType,
+        user_id: UUID
+    ) -> ConclusionProposalResponse:
+        """
+        결론 제안 상태 변경 (관리자용)
+        - 관리자 권한 확인
+        - PENDING 상태만 변경 가능
+        - ACCEPTED 시 제안 적용
+        """
+        # 1. 관리자 권한 확인
+        event = self.verify_admin(event_id, user_id)
+
+        # 2. 제안 조회 및 검증
+        proposal = self.repos.proposal.get_conclusion_proposal_by_id(proposal_id)
+        if not proposal:
+            raise NotFoundError(
+                message="Proposal not found",
+                detail=f"Conclusion proposal with id {proposal_id} not found"
+            )
+
+        # 제안이 속한 이벤트 확인 (criterion을 통해)
+        criterion = self.repos.criterion.get_by_id(proposal.criterion_id)
+        if not criterion or criterion.event_id != event_id:
+            raise NotFoundError(
+                message="Proposal not found",
+                detail="Proposal does not belong to this event"
+            )
+
+        if proposal.proposal_status != ProposalStatusType.PENDING:
+            raise ValidationError(
+                message="Invalid proposal status",
+                detail="Only PENDING proposals can have their status changed"
+            )
+
+        if status not in (ProposalStatusType.ACCEPTED, ProposalStatusType.REJECTED):
+            raise ValidationError(
+                message="Invalid status",
+                detail="Status must be ACCEPTED or REJECTED"
+            )
+
+        # 3. 상태 변경
+        proposal.proposal_status = status
+        if status == ProposalStatusType.ACCEPTED:
+            proposal.accepted_at = datetime.now(timezone.utc)
+            # 제안 적용
+            self._apply_conclusion_proposal(proposal, event)
+        else:
+            # REJECTED는 상태만 변경
+            pass
+
+        self.repos.proposal.update_conclusion_proposal(proposal)
+        self.db.commit()
+
+        # 4. 응답 생성
+        self.db.refresh(proposal, ['votes'])
+        vote_count = len(proposal.votes) if proposal.votes else 0
+        has_voted = any(vote.created_by == user_id for vote in (proposal.votes or []))
+
+        return ConclusionProposalResponse(
+            id=proposal.id,
+            criterion_id=proposal.criterion_id,
+            proposal_status=proposal.proposal_status,
+            proposal_content=proposal.proposal_content,
+            created_at=proposal.created_at,
+            created_by=proposal.created_by,
+            vote_count=vote_count,
+            has_voted=has_voted
+        )

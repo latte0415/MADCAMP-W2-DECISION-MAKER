@@ -1,7 +1,9 @@
 from pydantic import BaseModel, Field
 from uuid import UUID
 from typing import List
+from datetime import datetime
 from app.schemas.event.common import OptionInfo
+from app.models.event import EventStatusType
 
 
 # ============================================================================
@@ -84,3 +86,22 @@ class EventSettingResponse(BaseModel):
     # 입장 정책
     membership_is_auto_approved: bool
     entrance_code: str
+
+
+# ============================================================================
+# Event Status Update Schemas
+# ============================================================================
+
+class EventStatusUpdateRequest(BaseModel):
+    """이벤트 상태 변경 요청 (관리자용)"""
+    status: EventStatusType
+
+
+class EventStatusUpdateResponse(BaseModel):
+    """이벤트 상태 변경 응답"""
+    id: UUID
+    status: EventStatusType
+    updated_at: datetime | None
+
+    class Config:
+        from_attributes = True
