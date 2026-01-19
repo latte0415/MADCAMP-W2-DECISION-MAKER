@@ -104,6 +104,18 @@ class UserRepository:
         result = self.db.execute(stmt)
         return result.rowcount or 0
 
+    def set_name(self, *, user_id: UUID, name: str) -> int:
+        """
+        Returns number of rows updated.
+        """
+        stmt = (
+            update(User)
+            .where(User.id == user_id)
+            .values(name=name)
+        )
+        result = self.db.execute(stmt)
+        return result.rowcount or 0
+
 # ---------------------------------------------------------------------
 # UserIdentityRepository
 # ---------------------------------------------------------------------

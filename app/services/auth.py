@@ -437,3 +437,12 @@ class AuthService:
             # Invalidate sessions (important with refresh-cookie auth)
             self.token_repo.revoke_all_for_user(user_id=user.id, revoked_at=now)
 
+    def update_name(self, *, user_id: UUID, name: str) -> None:
+        """
+        Update user's name.
+        """
+        updated = self.user_repo.set_name(user_id=user_id, name=name)
+        if updated != 1:
+            raise UserNotFound()
+        self.db.flush()
+        self.db.commit()
