@@ -11,7 +11,7 @@ class CriterionRepository:
     def create_criteria(self, criteria: List[Criterion]) -> List[Criterion]:
         """기준들을 생성"""
         self.db.add_all(criteria)
-        self.db.commit()
+        self.db.flush()  # ID를 얻기 위해 flush만 수행 (commit은 Service에서)
         for criterion in criteria:
             self.db.refresh(criterion)
         return criteria
@@ -29,11 +29,11 @@ class CriterionRepository:
         from datetime import datetime, timezone
         criterion.updated_at = datetime.now(timezone.utc)
         criterion.updated_by = updated_by
-        self.db.commit()
+        self.db.flush()  # commit은 Service에서 수행
         self.db.refresh(criterion)
         return criterion
 
     def delete_criterion(self, criterion: Criterion) -> None:
         """기준 삭제"""
         self.db.delete(criterion)
-        self.db.commit()
+        # commit은 Service에서 수행

@@ -2,17 +2,18 @@ from typing import List
 from datetime import datetime, timezone
 from uuid import UUID
 from sqlalchemy.orm import Session
-from sqlalchemy.exc import IntegrityError, OperationalError
 
 from app.models.event import EventMembership, MembershipStatusType
 from app.repositories.membership_repository import MembershipRepository
-from app.exceptions import NotFoundError, ConflictError, InternalError
+from app.repositories.event_repository import EventRepository
+from app.exceptions import NotFoundError, ConflictError
 
 
 class MembershipService:
-    def __init__(self, db: Session, membership_repo: MembershipRepository):
+    def __init__(self, db: Session, membership_repo: MembershipRepository, event_repo: EventRepository):
         self.db = db
         self.membership_repo = membership_repo
+        self.event_repo = event_repo
 
     def create_admin_membership(self, event_id: UUID, admin_id: UUID) -> EventMembership:
         """
@@ -26,7 +27,9 @@ class MembershipService:
             membership_status=MembershipStatusType.ACCEPTED,
             joined_at=datetime.now(timezone.utc),
         )
-        return self.membership_repo.create_membership(membership)
+        result = self.membership_repo.create_membership(membership)
+        self.db.commit()
+        return result
 
     def join_event_by_code(self, entrance_code: str, user_id: UUID) -> tuple[UUID, str]:
         """
@@ -36,11 +39,8 @@ class MembershipService:
         - 없으면 PENDING 상태로 멤버십 생성
         - 반환: (event_id, message)
         """
-        from app.repositories.event_repository import EventRepository
-        
         # 입장 코드로 이벤트 조회
-        event_repo = EventRepository(self.db)
-        event = event_repo.get_by_entrance_code(entrance_code)
+        event = self.event_repo.get_by_entrance_code(entrance_code)
         
         if not event:
             raise NotFoundError(
@@ -68,35 +68,21 @@ class MembershipService:
             )
         
         # PENDING 상태로 멤버십 생성
-        try:
-            membership = EventMembership(
-                user_id=user_id,
-                event_id=event.id,
-                membership_status=MembershipStatusType.PENDING,
-                joined_at=None,  # ACCEPTED가 되면 설정됨
-            )
-            self.membership_repo.create_membership(membership)
-            return event.id, "정상적으로 신청되었습니다."
-        except IntegrityError as e:
-            self.db.rollback()
-            raise ConflictError(
-                message="Membership creation failed",
-                detail=f"Failed to join event: {str(e)}"
-            ) from e
-        except OperationalError as e:
-            self.db.rollback()
-            raise InternalError(
-                message="Database operation failed",
-                detail="Failed to join event due to database error"
-            ) from e
+        membership = EventMembership(
+            user_id=user_id,
+            event_id=event.id,
+            membership_status=MembershipStatusType.PENDING,
+            joined_at=None,  # ACCEPTED가 되면 설정됨
+        )
+        self.membership_repo.create_membership(membership)
+        self.db.commit()
+        return event.id, "정상적으로 신청되었습니다."
 
     def verify_admin(self, event_id: UUID, user_id: UUID) -> None:
         """이벤트 관리자 권한 확인"""
-        from app.repositories.event_repository import EventRepository
         from app.exceptions import ForbiddenError, NotFoundError
         
-        event_repo = EventRepository(self.db)
-        event = event_repo.get_by_id(event_id)
+        event = self.event_repo.get_by_id(event_id)
         
         if not event:
             raise NotFoundError(
@@ -117,7 +103,6 @@ class MembershipService:
         user_id: UUID
     ) -> EventMembership:
         """멤버십 승인"""
-        from app.repositories.event_repository import EventRepository
         from app.exceptions import ValidationError, ConflictError
         
         # 관리자 권한 확인
@@ -144,9 +129,8 @@ class MembershipService:
             )
         
         # max_membership 확인
-        event_repo = EventRepository(self.db)
-        current_count = event_repo.count_accepted_members(event_id)
-        event = event_repo.get_by_id(event_id)
+        current_count = self.event_repo.count_accepted_members(event_id)
+        event = self.event_repo.get_by_id(event_id)
         
         if event and current_count >= event.max_membership:
             raise ConflictError(
@@ -158,7 +142,9 @@ class MembershipService:
         membership.membership_status = MembershipStatusType.ACCEPTED
         membership.joined_at = datetime.now(timezone.utc)
         
-        return self.membership_repo.update_membership(membership)
+        result = self.membership_repo.update_membership(membership)
+        self.db.commit()
+        return result
 
     def reject_membership(
         self,
@@ -195,7 +181,9 @@ class MembershipService:
         # 거부 처리
         membership.membership_status = MembershipStatusType.REJECTED
         
-        return self.membership_repo.update_membership(membership)
+        result = self.membership_repo.update_membership(membership)
+        self.db.commit()
+        return result
 
     def bulk_approve_memberships(
         self,
@@ -203,7 +191,6 @@ class MembershipService:
         user_id: UUID
     ) -> dict:
         """멤버십 일괄 승인"""
-        from app.repositories.event_repository import EventRepository
         from app.exceptions import ConflictError
         
         # 관리자 권한 확인
@@ -219,9 +206,8 @@ class MembershipService:
             }
         
         # max_membership 확인
-        event_repo = EventRepository(self.db)
-        current_count = event_repo.count_accepted_members(event_id)
-        event = event_repo.get_by_id(event_id)
+        current_count = self.event_repo.count_accepted_members(event_id)
+        event = self.event_repo.get_by_id(event_id)
         
         if not event:
             raise NotFoundError(
@@ -243,6 +229,7 @@ class MembershipService:
             approved_count += 1
             current_count += 1
         
+        self.db.commit()  # 모든 승인 작업을 한 번에 commit
         return {
             "approved_count": approved_count,
             "failed_count": failed_count,
@@ -272,6 +259,7 @@ class MembershipService:
             self.membership_repo.update_membership(membership)
             rejected_count += 1
         
+        self.db.commit()  # 모든 거부 작업을 한 번에 commit
         return {
             "rejected_count": rejected_count,
         }

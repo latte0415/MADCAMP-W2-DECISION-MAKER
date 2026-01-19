@@ -12,7 +12,7 @@ class OptionRepository:
     def create_options(self, options: List[Option]) -> List[Option]:
         """선택지들을 생성"""
         self.db.add_all(options)
-        self.db.commit()
+        self.db.flush()  # ID를 얻기 위해 flush만 수행 (commit은 Service에서)
         for option in options:
             self.db.refresh(option)
         return options
@@ -28,11 +28,11 @@ class OptionRepository:
         """선택지 업데이트"""
         from datetime import datetime, timezone
         option.updated_at = datetime.now(timezone.utc)
-        self.db.commit()
+        self.db.flush()  # commit은 Service에서 수행
         self.db.refresh(option)
         return option
 
     def delete_option(self, option: Option) -> None:
         """선택지 삭제"""
         self.db.delete(option)
-        self.db.commit()
+        # commit은 Service에서 수행

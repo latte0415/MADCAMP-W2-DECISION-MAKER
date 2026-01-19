@@ -12,7 +12,7 @@ class AssumptionRepository:
     def create_assumptions(self, assumptions: List[Assumption]) -> List[Assumption]:
         """전제들을 생성"""
         self.db.add_all(assumptions)
-        self.db.commit()
+        self.db.flush()  # ID를 얻기 위해 flush만 수행 (commit은 Service에서)
         for assumption in assumptions:
             self.db.refresh(assumption)
         return assumptions
@@ -29,11 +29,11 @@ class AssumptionRepository:
         from datetime import datetime, timezone
         assumption.updated_at = datetime.now(timezone.utc)
         assumption.updated_by = updated_by
-        self.db.commit()
+        self.db.flush()  # commit은 Service에서 수행
         self.db.refresh(assumption)
         return assumption
 
     def delete_assumption(self, assumption: Assumption) -> None:
         """전제 삭제"""
         self.db.delete(assumption)
-        self.db.commit()
+        # commit은 Service에서 수행
