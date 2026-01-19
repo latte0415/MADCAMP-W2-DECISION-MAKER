@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+from datetime import timedelta
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Optional
@@ -11,6 +13,7 @@ from sqlalchemy.orm import Session
 
 from app.repositories.auth import (
     RefreshTokenRepository,
+    PasswordResetTokenRepository,
     UserIdentityRepository,
     UserRepository,
     UniqueViolation,
@@ -19,13 +22,16 @@ from app.schemas.auth import CurrentUser
 from app.utils.security import (
     create_access_token,
     create_refresh_token,
+    create_password_reset_token,
+    hash_password_reset_token,
     hash_password,
     hash_refresh_token,
     utcnow,
     verify_password,
     verify_token,
 )
-
+from app.utils.google_auth import GoogleAuthError, verify_google_id_token
+from app.utils.mailer import MailerError, SendGridMailer
 
 # ---------------------------------------------------------------------
 # Service-level errors (router maps these to HTTP responses)
@@ -50,7 +56,24 @@ class InactiveUser(AuthServiceError):
 class InvalidRefreshToken(AuthServiceError):
     pass
 
+class InvalidGoogleToken(AuthServiceError):
+    pass
 
+class LocalLoginNotAvailable(AuthServiceError):
+    '''
+    A linked google account exists for the given email, but not a local one.
+    '''
+    def __init__(self, provider: str = "google"):
+        self.provider = provider
+
+class UserNotFound(AuthServiceError):
+    pass
+
+class InvalidPasswordResetToken(AuthServiceError):
+    pass
+
+class PasswordResetEmailSendFailed(AuthServiceError):
+    pass
 # ---------------------------------------------------------------------
 # Return type for service methods (router sets cookie from refresh_token)
 # ---------------------------------------------------------------------
@@ -76,12 +99,15 @@ class AuthService:
         user_repo: UserRepository,
         identity_repo: UserIdentityRepository,
         token_repo: RefreshTokenRepository,
+        reset_repo: PasswordResetTokenRepository,
+        mailer: SendGridMailer,
     ):
         self.db = db
         self.user_repo = user_repo
         self.identity_repo = identity_repo
         self.token_repo = token_repo
-
+        self.reset_repo = reset_repo
+        self.mailer = mailer
     # -------------------------
     # Core helpers
     # -------------------------
@@ -101,6 +127,19 @@ class AuthService:
 
         refresh_expires_at = _exp_to_datetime_utc(exp)
         return access, refresh, refresh_expires_at
+    
+    def _password_reset_ttl(self) -> timedelta:
+        minutes = int(os.getenv("PASSWORD_RESET_TOKEN_EXPIRE_MINUTES", "30"))
+        return timedelta(minutes=minutes)
+
+    def _build_password_reset_link(self, raw_token: str) -> str:
+        """
+        Frontend URL should be something like: https://.../reset-password
+        """
+        base = os.getenv("FRONTEND_BASE_URL", "").strip().rstrip("/")
+        if not base:
+            raise RuntimeError("FRONTEND_BASE_URL is not set")
+        return f"{base}/reset-password?token={raw_token}"
 
     # -------------------------
     # Public service methods
@@ -112,14 +151,14 @@ class AuthService:
         - Create user + local identity within a transaction
         - Issue tokens and persist refresh token hash
         """
-        # Fast-fail check (still keep DB constraints as ultimate guard)
-        existing = self.identity_repo.get_local_by_email(email)
-        if existing:
-            raise EmailAlreadyExists()
 
         pw_hash = hash_password(password)
 
         with self.db.begin():
+                    # Fast-fail check (still keep DB constraints as ultimate guard)
+            if self.user_repo.get_by_email(email):
+                raise EmailAlreadyExists()
+
             try:
                 user = self.user_repo.create(email=email, password_hash=pw_hash)
                 self.identity_repo.create_local(user_id=user.id, email=email)
@@ -152,19 +191,29 @@ class AuthService:
         - Verify password against user's password_hash
         - Issue new tokens and store refresh token hash
         """
-        identity = self.identity_repo.get_local_by_email_with_user(email)
-        if not identity or not identity.user:
-            raise InvalidCredentials()
 
-        user = identity.user
-
-        if not user.is_active:
-            raise InactiveUser()
-
-        if not user.password_hash or not verify_password(password, user.password_hash):
-            raise InvalidCredentials()
 
         with self.db.begin():
+            identity = self.identity_repo.get_local_by_email_with_user(email)
+            if not identity or not identity.user:
+                google_identity = self.identity_repo.get_by_provider_and_email_with_user(
+                provider="google",
+                email=email,
+                )
+
+                if google_identity and google_identity.user and google_identity.user.is_active:
+                    raise LocalLoginNotAvailable(provider="google")
+
+                raise InvalidCredentials()
+
+            user = identity.user
+
+            if not user.is_active:
+                raise InactiveUser()
+
+            if not user.password_hash or not verify_password(password, user.password_hash):
+                raise InvalidCredentials()
+            
             access, refresh, refresh_expires_at = self._issue_tokens_for_user(
                 user_id=user.id,
                 email=user.email,
@@ -181,6 +230,87 @@ class AuthService:
             refresh_token=refresh,
             user=CurrentUser.model_validate(user),
         )
+    
+    def login_google(self, *, id_token: str) -> AuthResult:
+        """
+        Minimal Google login:
+        - Verify Google ID token server-side
+        - Lookup by (provider="google", provider_user_id=sub)
+        - If missing, link by email if existing user with same email exists
+        - Else create new user (password_hash=None)
+        - Create google identity row
+        - Issue our tokens + store refresh hash
+        """
+        try:
+            info = verify_google_id_token(id_token)
+        except GoogleAuthError as e:
+            raise InvalidGoogleToken() from e
+
+        google_sub = info.sub
+        email = info.email  # may be None depending on scopes/settings
+
+        with self.db.begin():
+            # 1) If identity exists already, use it
+            identity = self.identity_repo.get_by_provider_user_id_with_user(
+                provider="google",
+                provider_user_id=google_sub,
+            )
+            user = None
+            if identity:
+                user = self.user_repo.get_by_id(identity.user_id)
+
+            # 2) Else link by email (collision handling) or create user
+            if user is None:
+                if email:
+                    existing_user = self.user_repo.get_by_email(email)
+                else:
+                    existing_user = None
+
+                if existing_user:
+                    user = existing_user
+                else:
+                    # Create new OAuth-first user; no local password.
+                    try:
+                        user = self.user_repo.create(email=email, password_hash=None)
+                    except UniqueViolation:
+                        # Extremely unlikely here, but if email got created concurrently, retry by email lookup.
+                        if email:
+                            user = self.user_repo.get_by_email(email)
+                        if user is None:
+                            raise
+
+                # Create Google identity for this user
+                try:
+                    self.identity_repo.create(
+                        user_id=user.id,
+                        provider="google",
+                        provider_user_id=google_sub,
+                        email=email,
+                    )
+                except UniqueViolation:
+                    # If another request created the identity concurrently, proceed (idempotent-ish)
+                    pass
+
+            if not user.is_active:
+                raise InactiveUser()
+
+            access, refresh, refresh_expires_at = self._issue_tokens_for_user(
+                user_id=user.id,
+                email=user.email or email,
+            )
+
+            self.token_repo.create(
+                user_id=user.id,
+                token_hash=hash_refresh_token(refresh),
+                expires_at=refresh_expires_at,
+            )
+
+        return AuthResult(
+            access_token=access,
+            refresh_token=refresh,
+            user=CurrentUser.model_validate(user),
+        )
+
 
     def refresh(self, *, refresh_token: str) -> AuthResult:
         """
@@ -242,3 +372,68 @@ class AuthService:
         now = utcnow()
         with self.db.begin():
             self.token_repo.revoke_by_hash(token_hash=token_hash, revoked_at=now)
+
+    def request_password_reset(self, *, email: str) -> None:
+        """
+        Class-project policy: if user does not exist -> raise UserNotFound.
+        If exists:
+          - invalidate previous unused reset tokens for that user
+          - create new reset token row (store hash + expiry)
+          - send email via SendGrid with reset link
+        """
+        now = utcnow()
+
+        
+        with self.db.begin():
+            # 1) Find user (outside transaction is fine)
+            user = self.user_repo.get_by_email(email)
+            if not user:
+                raise UserNotFound()
+            if not user.is_active:
+                raise InactiveUser()
+
+            # 2) Create token + persist DB row
+            raw = create_password_reset_token()
+            token_hash = hash_password_reset_token(raw)
+            expires_at = now + self._password_reset_ttl()
+
+            # latest-only semantics
+            self.reset_repo.invalidate_all_for_user(user_id=user.id, used_at=now)
+            self.reset_repo.create(user_id=user.id, token_hash=token_hash, expires_at=expires_at)
+
+        # 3) Send email after commit (avoid keeping TX open)
+        link = self._build_password_reset_link(raw)
+        try:
+            self.mailer.send_password_reset_email(to_email=email, reset_link=link)
+        except MailerError as e:
+            raise PasswordResetEmailSendFailed() from e
+        
+    def confirm_password_reset(self, *, token: str, new_password: str) -> None:
+        """
+        Validate token (exists, unused, not expired), set new password hash,
+        mark token used, and revoke all refresh tokens for user.
+        """
+        now = utcnow()
+        token_hash = hash_password_reset_token(token)
+
+        with self.db.begin():
+            prt = self.reset_repo.get_active_by_hash(token_hash=token_hash, now=now)
+            if not prt:
+                raise InvalidPasswordResetToken()
+
+            user = self.user_repo.get_by_id(prt.user_id)
+            if not user or not user.is_active:
+                raise InvalidPasswordResetToken()
+
+            # Update password
+            pw_hash = hash_password(new_password)
+            updated = self.user_repo.set_password_hash(user_id=user.id, password_hash=pw_hash)
+            if updated != 1:
+                raise InvalidPasswordResetToken()
+
+            # Consume token (one-time use)
+            self.reset_repo.mark_used_by_hash(token_hash=token_hash, used_at=now)
+
+            # Invalidate sessions (important with refresh-cookie auth)
+            self.token_repo.revoke_all_for_user(user_id=user.id, revoked_at=now)
+

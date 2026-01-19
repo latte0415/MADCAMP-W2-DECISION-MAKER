@@ -1,10 +1,12 @@
 from uuid import UUID
 from typing import List
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, status
 from sqlalchemy.orm import Session
+from sqlalchemy.exc import IntegrityError, OperationalError
 
 from app.db import get_db
 from app.models import Event, Option
+from app.exceptions import NotFoundError, ConflictError, InternalError
 from app.schemas.dev.option import OptionCreate, OptionUpdate, OptionResponse
 
 router = APIRouter()
@@ -28,8 +30,8 @@ async def get_option(
     """선택지 단일 조회"""
     option = db.query(Option).filter(Option.id == option_id).first()
     if not option:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
+        raise NotFoundError(
+            message="Option not found",
             detail=f"Option with id {option_id} not found"
         )
     return option
@@ -45,18 +47,31 @@ async def create_option(
     # event_id 검증
     event = db.query(Event).filter(Event.id == event_id).first()
     if not event:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
+        raise NotFoundError(
+            message="Event not found",
             detail=f"Event with id {event_id} not found"
         )
     
-    option_data = option.model_dump()
-    option_data['event_id'] = event_id
-    db_option = Option(**option_data)
-    db.add(db_option)
-    db.commit()
-    db.refresh(db_option)
-    return db_option
+    try:
+        option_data = option.model_dump()
+        option_data['event_id'] = event_id
+        db_option = Option(**option_data)
+        db.add(db_option)
+        db.commit()
+        db.refresh(db_option)
+        return db_option
+    except IntegrityError as e:
+        db.rollback()
+        raise ConflictError(
+            message="Option creation failed",
+            detail=f"Failed to create option: {str(e)}"
+        ) from e
+    except OperationalError as e:
+        db.rollback()
+        raise InternalError(
+            message="Database operation failed",
+            detail=f"Failed to create option due to database error: {str(e)}"
+        ) from e
 
 
 @router.patch("/options/{option_id}", response_model=OptionResponse)
@@ -68,22 +83,35 @@ async def update_option(
     """선택지 수정"""
     db_option = db.query(Option).filter(Option.id == option_id).first()
     if not db_option:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
+        raise NotFoundError(
+            message="Option not found",
             detail=f"Option with id {option_id} not found"
         )
     
-    update_data = option_update.model_dump(exclude_unset=True)
-    if update_data:
-        from datetime import datetime, timezone
-        update_data['updated_at'] = datetime.now(timezone.utc)
-    
-    for field, value in update_data.items():
-        setattr(db_option, field, value)
-    
-    db.commit()
-    db.refresh(db_option)
-    return db_option
+    try:
+        update_data = option_update.model_dump(exclude_unset=True)
+        if update_data:
+            from datetime import datetime, timezone
+            update_data['updated_at'] = datetime.now(timezone.utc)
+        
+        for field, value in update_data.items():
+            setattr(db_option, field, value)
+        
+        db.commit()
+        db.refresh(db_option)
+        return db_option
+    except IntegrityError as e:
+        db.rollback()
+        raise ConflictError(
+            message="Option update failed",
+            detail=f"Failed to update option: {str(e)}"
+        ) from e
+    except OperationalError as e:
+        db.rollback()
+        raise InternalError(
+            message="Database operation failed",
+            detail=f"Failed to update option due to database error: {str(e)}"
+        ) from e
 
 
 @router.delete("/options/{option_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -94,10 +122,18 @@ async def delete_option(
     """선택지 삭제"""
     db_option = db.query(Option).filter(Option.id == option_id).first()
     if not db_option:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
+        raise NotFoundError(
+            message="Option not found",
             detail=f"Option with id {option_id} not found"
         )
-    db.delete(db_option)
-    db.commit()
-    return None
+    
+    try:
+        db.delete(db_option)
+        db.commit()
+        return None
+    except OperationalError as e:
+        db.rollback()
+        raise InternalError(
+            message="Database operation failed",
+            detail=f"Failed to delete option due to database error: {str(e)}"
+        ) from e

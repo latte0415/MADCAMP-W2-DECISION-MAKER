@@ -62,11 +62,20 @@
     - membership_status: pending 중인지 여부
     - 제안: `GET /events` (현재 사용자 정보는 JWT 토큰에서 추출)
 
+- POST /events/entry:
+    - 입력: entrance_code, 현재 사용자 정보는 JWT 토큰에서 추출
+    - 로직: 
+        - entrance_code로 이벤트 조회 (events.id)
+            - 존재하지 않는 이벤트 -> "존재하지 않는 정보입니다." 에러 처리
+        - events.id 기반으로 현재 사용자의 멤버십 여부 조회
+            - 이미 존재 -> "이미 가입되었습니다."
+            - 없을 경우 -> membership PENDING 상태로 삽입. "정상적으로 신청되었습니다." 메시지 후, Home (3-0-0) 새로고침
+
 ## Event_Overview (3-1-0) (Pop-up)
 
 ### 목적
 
-- 홈 화면(Home (3-0-0)에서 뜨는 개요 창
+- 홈 화면(Home (3-0-0))에서 뜨는 개요 창
 - event 접속을 위해서 반드시 거쳐야 하는 창으로, 현재 membership 상태 처리
 
 ### 구성 요소
@@ -91,13 +100,23 @@
 
 ### API 설계
 
-- POST /events/entry
-    - 입력: users.id, entrance_code
-    - 로직
-        - event_memebership 추가 안 되어 있으면, PENDING 걸어두고 대기
-        - 추가 되어 있는데 PENDING이면 역시나 대기
-        - 추가 되어 있는데 ACCPETED면 Event_Overview (3-1-0) (Pop-up)로 이동하기 위한 정보 반환
-    - 제안: `POST /events/entry` 또는 `POST /events/join`
+- GET /events/{event_id}/overview
+    - 입력: event_id (path parameter), 현재 사용자 정보는 JWT 토큰에서 추출
+    - 출력:
+        - event: id, decision_subject, event_status, entrance_code
+        - options: List[{id, content}] (event에 연결된 선택지들)
+        - admin: id, email (admin_id로 조인)
+        - participant_count: int (event_membership에서 ACCEPTED 상태인 멤버 수)
+        - membership_status: PENDING | ACCEPTED | REJECTED (현재 사용자의 멤버십 상태)
+        - can_enter: boolean (membership_status가 ACCEPTED일 때만 true, 입장하기 버튼 활성화 여부)
+    - 로직:
+        - event_id로 event 조회
+        - event.options 조인해서 선택지 목록 반환
+        - event.admin 조인해서 관리자 정보 반환
+        - event_membership에서 ACCEPTED 상태인 멤버 수 카운트
+        - 현재 사용자의 해당 event에 대한 membership_status 조회
+        - membership_status가 ACCEPTED면 can_enter = true, 아니면 false
+    - 제안: `GET /events/{event_id}/overview`
 
 ## Event_Creation (3-2-0) (Pop-up)
 
@@ -312,8 +331,78 @@
 
 ### API 설계
 
-- PATCH /events
-    - 제안: `PATCH /events/{event_id}`
+#### 이벤트 정보 수정
+- `PATCH /events/{event_id}`
+    - 입력: event_id (path parameter), 현재 사용자 정보는 JWT 토큰에서 추출
+    - 요청 body (모든 필드 optional):
+        - decision_subject: str (기본 정보 - NOT_STARTED일 때만 수정 가능)
+        - options: List[{id: UUID?, content: str}] (기본 정보 - NOT_STARTED일 때만 수정 가능)
+            - id가 없으면 추가, 있으면 수정, null이면 삭제로 처리
+        - assumptions: List[{id: UUID?, content: str}] (기본 정보 - NOT_STARTED일 때만 수정 가능)
+            - id가 없으면 추가, 있으면 수정, null이면 삭제로 처리
+        - criteria: List[{id: UUID?, content: str}] (기본 정보 - NOT_STARTED일 때만 수정 가능)
+            - id가 없으면 추가, 있으면 수정, null이면 삭제로 처리
+        - max_membership: int (FINISHED가 아닐 때 수정 가능, 현재 참가 인원보다 작을 수 없음)
+        - assumption_is_auto_approved_by_votes: bool (투표 허용 정책 - FINISHED가 아닐 때 수정 가능)
+        - assumption_min_votes_required: int | None (투표 허용 정책 - FINISHED가 아닐 때 수정 가능)
+        - criteria_is_auto_approved_by_votes: bool (투표 허용 정책 - FINISHED가 아닐 때 수정 가능)
+        - criteria_min_votes_required: int | None (투표 허용 정책 - FINISHED가 아닐 때 수정 가능)
+        - conclusion_approval_threshold_percent: int | None (투표 허용 정책 - FINISHED가 아닐 때 수정 가능, 1~100)
+        - membership_is_auto_approved: bool (입장 정책 - FINISHED가 아닐 때 수정 가능)
+    - 출력: EventResponse
+    - 로직:
+        - 현재 사용자가 해당 이벤트의 관리자인지 확인
+        - 이벤트 상태에 따라 수정 가능 여부 검증
+        - max_membership 수정 시 현재 ACCEPTED 멤버 수와 비교
+        - 각 필드별 수정 권한 검증 후 업데이트
+    - 제안: `PATCH /events/{event_id}` ✓ (이벤트 정보 수정에 적합)
+
+#### 멤버십 관리 (관리자용)
+- 현재 참가신청된 사용자 정보 (status와 무관하게 전부. )
+    - 출력 받아야 할거
+        - user id
+        - membership id
+        - status
+        - 신청 일시 (created_at)
+        - 승인 일시 (joined_at)
+
+- `PATCH /events/{event_id}/memberships/{membership_id}/approve`
+    - 입력: event_id, membership_id (path parameter), 현재 사용자 정보는 JWT 토큰에서 추출
+    - 출력: {message: str, membership_id: UUID, membership_status: "ACCEPTED"}
+    - 로직:
+        - 현재 사용자가 해당 이벤트의 관리자인지 확인
+        - membership 조회 (없으면 404)
+        - membership_status가 PENDING인지 확인
+        - membership_status를 ACCEPTED로 변경
+        - joined_at을 현재 시간으로 설정
+        - max_membership 초과 여부 확인
+
+- `PATCH /events/{event_id}/memberships/{membership_id}/reject`
+    - 입력: event_id, membership_id (path parameter), 현재 사용자 정보는 JWT 토큰에서 추출
+    - 출력: {message: str, membership_id: UUID, membership_status: "REJECTED"}
+    - 로직:
+        - 현재 사용자가 해당 이벤트의 관리자인지 확인
+        - membership 조회 (없으면 404)
+        - membership_status가 PENDING인지 확인
+        - membership_status를 REJECTED로 변경
+
+- `POST /events/{event_id}/memberships/bulk-approve`
+    - 입력: event_id (path parameter), 현재 사용자 정보는 JWT 토큰에서 추출
+    - 출력: {message: str, approved_count: int, failed_count: int}
+    - 로직:
+        - 현재 사용자가 해당 이벤트의 관리자인지 확인
+        - 해당 이벤트의 PENDING 상태인 모든 membership 조회
+        - 각 membership을 ACCEPTED로 변경 (max_membership 초과 시 실패 처리)
+        - 변경 성공/실패 개수 반환
+
+- `POST /events/{event_id}/memberships/bulk-reject`
+    - 입력: event_id (path parameter), 현재 사용자 정보는 JWT 토큰에서 추출
+    - 출력: {message: str, rejected_count: int}
+    - 로직:
+        - 현재 사용자가 해당 이벤트의 관리자인지 확인
+        - 해당 이벤트의 PENDING 상태인 모든 membership 조회
+        - 각 membership을 REJECTED로 변경
+        - 변경된 개수 반환
 
 ## Event_Vote (4-2-0) (Pop-up)
 

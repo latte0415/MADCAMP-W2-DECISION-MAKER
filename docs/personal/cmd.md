@@ -17,8 +17,11 @@ docker compose exec api sh -lc 'DATABASE_URL="$DATABASE_URL_OWNER" alembic revis
 docker compose exec api sh -lc 'DATABASE_URL="$DATABASE_URL_OWNER" alembic upgrade head'
 
 
-로컬 실행
+로컬 빌드 + 실행
 docker compose -f docker-compose.yml -f docker-compose.local.yml up -d --build
+
+컨테이너 상태 확인
+docker compose ps
 
 최근 로그
 docker compose logs -n 200 api

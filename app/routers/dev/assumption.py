@@ -1,10 +1,12 @@
 from uuid import UUID
 from typing import List
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, status
 from sqlalchemy.orm import Session
+from sqlalchemy.exc import IntegrityError, OperationalError
 
 from app.db import get_db
 from app.models import Event, Assumption
+from app.exceptions import NotFoundError, ConflictError, InternalError
 from app.schemas.dev.assumption import AssumptionCreate, AssumptionUpdate, AssumptionResponse
 
 router = APIRouter()
@@ -28,8 +30,8 @@ async def get_assumption(
     """전제 단일 조회"""
     assumption = db.query(Assumption).filter(Assumption.id == assumption_id).first()
     if not assumption:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
+        raise NotFoundError(
+            message="Assumption not found",
             detail=f"Assumption with id {assumption_id} not found"
         )
     return assumption
@@ -45,18 +47,31 @@ async def create_assumption(
     # event_id 검증
     event = db.query(Event).filter(Event.id == event_id).first()
     if not event:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
+        raise NotFoundError(
+            message="Event not found",
             detail=f"Event with id {event_id} not found"
         )
     
-    assumption_data = assumption.model_dump()
-    assumption_data['event_id'] = event_id
-    db_assumption = Assumption(**assumption_data)
-    db.add(db_assumption)
-    db.commit()
-    db.refresh(db_assumption)
-    return db_assumption
+    try:
+        assumption_data = assumption.model_dump()
+        assumption_data['event_id'] = event_id
+        db_assumption = Assumption(**assumption_data)
+        db.add(db_assumption)
+        db.commit()
+        db.refresh(db_assumption)
+        return db_assumption
+    except IntegrityError as e:
+        db.rollback()
+        raise ConflictError(
+            message="Assumption creation failed",
+            detail=f"Failed to create assumption: {str(e)}"
+        ) from e
+    except OperationalError as e:
+        db.rollback()
+        raise InternalError(
+            message="Database operation failed",
+            detail=f"Failed to create assumption due to database error: {str(e)}"
+        ) from e
 
 
 @router.patch("/assumptions/{assumption_id}", response_model=AssumptionResponse)
@@ -68,23 +83,36 @@ async def update_assumption(
     """전제 수정"""
     db_assumption = db.query(Assumption).filter(Assumption.id == assumption_id).first()
     if not db_assumption:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
+        raise NotFoundError(
+            message="Assumption not found",
             detail=f"Assumption with id {assumption_id} not found"
         )
     
-    update_data = assumption_update.model_dump(exclude_unset=True)
-    if update_data:
-        if 'updated_at' not in update_data:
-            from datetime import datetime, timezone
-            update_data['updated_at'] = datetime.now(timezone.utc)
-    
-    for field, value in update_data.items():
-        setattr(db_assumption, field, value)
-    
-    db.commit()
-    db.refresh(db_assumption)
-    return db_assumption
+    try:
+        update_data = assumption_update.model_dump(exclude_unset=True)
+        if update_data:
+            if 'updated_at' not in update_data:
+                from datetime import datetime, timezone
+                update_data['updated_at'] = datetime.now(timezone.utc)
+        
+        for field, value in update_data.items():
+            setattr(db_assumption, field, value)
+        
+        db.commit()
+        db.refresh(db_assumption)
+        return db_assumption
+    except IntegrityError as e:
+        db.rollback()
+        raise ConflictError(
+            message="Assumption update failed",
+            detail=f"Failed to update assumption: {str(e)}"
+        ) from e
+    except OperationalError as e:
+        db.rollback()
+        raise InternalError(
+            message="Database operation failed",
+            detail=f"Failed to update assumption due to database error: {str(e)}"
+        ) from e
 
 
 @router.delete("/assumptions/{assumption_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -95,10 +123,18 @@ async def delete_assumption(
     """전제 삭제"""
     db_assumption = db.query(Assumption).filter(Assumption.id == assumption_id).first()
     if not db_assumption:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
+        raise NotFoundError(
+            message="Assumption not found",
             detail=f"Assumption with id {assumption_id} not found"
         )
-    db.delete(db_assumption)
-    db.commit()
-    return None
+    
+    try:
+        db.delete(db_assumption)
+        db.commit()
+        return None
+    except OperationalError as e:
+        db.rollback()
+        raise InternalError(
+            message="Database operation failed",
+            detail=f"Failed to delete assumption due to database error: {str(e)}"
+        ) from e
