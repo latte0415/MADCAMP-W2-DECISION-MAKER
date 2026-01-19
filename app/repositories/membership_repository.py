@@ -13,7 +13,7 @@ class MembershipRepository:
     def create_membership(self, membership: EventMembership) -> EventMembership:
         """멤버십 생성"""
         self.db.add(membership)
-        self.db.commit()
+        self.db.flush()  # ID를 얻기 위해 flush만 수행 (commit은 Service에서)
         self.db.refresh(membership)
         return membership
 
@@ -38,7 +38,7 @@ class MembershipRepository:
         """멤버십 업데이트"""
         from datetime import datetime, timezone
         membership.updated_at = datetime.now(timezone.utc)
-        self.db.commit()
+        self.db.flush()  # commit은 Service에서 수행
         self.db.refresh(membership)
         return membership
 

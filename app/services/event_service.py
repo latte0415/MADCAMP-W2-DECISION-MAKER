@@ -42,7 +42,9 @@ class EventService:
     ) -> Event:
         """이벤트 생성"""
         event = self._create_event_from_request(request, admin_id)
-        return self.repos.event.create_event(event)
+        result = self.repos.event.create_event(event)
+        self.db.commit()
+        return result
 
     def attach_options(
         self,
@@ -59,7 +61,9 @@ class EventService:
             )
             for req in option_requests
         ]
-        return self.repos.option.create_options(options)
+        result = self.repos.option.create_options(options)
+        self.db.commit()
+        return result
 
     def attach_assumptions(
         self,
@@ -76,7 +80,9 @@ class EventService:
             )
             for req in assumption_requests
         ]
-        return self.repos.assumption.create_assumptions(assumptions)
+        result = self.repos.assumption.create_assumptions(assumptions)
+        self.db.commit()
+        return result
 
     def attach_criteria(
         self,
@@ -93,7 +99,9 @@ class EventService:
             )
             for req in criterion_requests
         ]
-        return self.repos.criterion.create_criteria(criteria)
+        result = self.repos.criterion.create_criteria(criteria)
+        self.db.commit()
+        return result
 
     def check_entrance_code_availability(self, entrance_code: str) -> bool:
         """입장 코드 사용 가능 여부 확인 (중복이 없으면 True)"""
@@ -399,7 +407,9 @@ class EventService:
             event.membership_is_auto_approved = request.membership_is_auto_approved
         
         # 이벤트 업데이트
-        return self.repos.event.update_event(event)
+        result = self.repos.event.update_event(event)
+        self.db.commit()
+        return result
 
     def _update_options(
         self,

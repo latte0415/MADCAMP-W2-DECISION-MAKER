@@ -19,6 +19,10 @@ if cors_origins == "*":
     allow_credentials = False
 else:
     origins = [origin.strip() for origin in cors_origins.split(",")]
+    # 개발 환경: localhost:5173 자동 추가 (중복 방지)
+    dev_origin = "http://localhost:5173"
+    if dev_origin not in origins:
+        origins.append(dev_origin)
     allow_credentials = True
 
 app.add_middleware(
@@ -37,16 +41,6 @@ async def root():
 async def health():
     return {"status": "ok"}
 
-# Dev 라우터 등록
 app.include_router(dev_router, prefix="/dev", tags=["dev"])
-
-app.add_middleware( # 테스트용
-    CORSMiddleware,
-    allow_origins=["http://localhost:5173"],  # React dev server
-    allow_credentials=True,                   # MUST be True for cookies
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
 app.include_router(auth_router, prefix="/auth", tags=["auth"])
 app.include_router(event_router, prefix="/v1", tags=["events"])

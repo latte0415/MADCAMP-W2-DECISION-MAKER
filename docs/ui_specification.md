@@ -332,6 +332,8 @@
 ### API 설계
 
 #### 이벤트 정보 수정
+- 수정하기 위해 보여줘야 할 정보 반환하기 (overview 처럼))
+
 - `PATCH /events/{event_id}`
     - 입력: event_id (path parameter), 현재 사용자 정보는 JWT 토큰에서 추출
     - 요청 body (모든 필드 optional):
