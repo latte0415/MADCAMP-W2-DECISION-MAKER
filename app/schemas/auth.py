@@ -37,7 +37,7 @@ class UserResponse(BaseModel):
 
 class SignupRequest(BaseModel):
     email: EmailStr
-    password: str = Field(min_length=8, max_length=128)
+    password: str = Field(min_length=8, max_length=20)
 
 
 class LoginRequest(BaseModel):
@@ -51,6 +51,19 @@ class GoogleLoginRequest(BaseModel):
     """
     id_token: str = Field(min_length=1)
 
+class PasswordResetRequest(BaseModel):
+    """
+    POST /api/auth/password-reset/request
+    """
+    email: EmailStr
+
+
+class PasswordResetConfirmRequest(BaseModel):
+    """
+    POST /api/auth/password-reset/confirm
+    """
+    token: str = Field(min_length=1)
+    new_password: str = Field(min_length=8, max_length=20)
 
 # -----------------------------
 # Responses
@@ -68,5 +81,5 @@ class TokenResponse(BaseModel):
 
 
 class MessageResponse(BaseModel):
-    """Response for POST /logout."""
+    """Response for POST /logout, as well as for POST /api/auth/password-reset/confirm and POST /api/auth/password-reset/request"""
     message: str

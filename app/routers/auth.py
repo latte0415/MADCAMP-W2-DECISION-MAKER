@@ -12,7 +12,9 @@ from app.schemas.auth import (
     SignupRequest,
     TokenResponse,
     UserResponse,
-    GoogleLoginRequest
+    GoogleLoginRequest,
+    PasswordResetRequest,
+    PasswordResetConfirmRequest,
 )
 from app.services.auth import (
     AuthService,
@@ -22,6 +24,9 @@ from app.services.auth import (
     InvalidGoogleToken,
     LocalLoginNotAvailable,
     InvalidRefreshToken,
+    UserNotFound,
+    InvalidPasswordResetToken,
+    PasswordResetEmailSendFailed,
 )
 
 router = APIRouter()
@@ -70,7 +75,7 @@ def signup(
     try:
         result = service.signup(email=req.email, password=req.password)
     except EmailAlreadyExists:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Email already in use")
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="이미 사용 중인 이메일입니다.")
 
     _set_refresh_cookie(response, result.refresh_token)
 
@@ -92,12 +97,12 @@ def login(
     except LocalLoginNotAvailable:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="This email is registered via Google. Please log in with Google.",
+            detail="구글 계정과 연결된 이메일입니다. 구글로 로그인해주세요.",
         )
     except InvalidCredentials:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="이메일/비밀번호가 일치하지 않습니다.")
     except InactiveUser:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="User is inactive")
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="비활성화된 사용자입니다.")
 
     _set_refresh_cookie(response, result.refresh_token)
 
@@ -121,9 +126,9 @@ def login_with_google(
     try:
         result = service.login_google(id_token=req.id_token)
     except InvalidGoogleToken:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid Google token")
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="구글 토큰 오류가 발생하였습니다.")
     except InactiveUser:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="User is inactive")
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="비활성화된 사용자입니다.")
 
     _set_refresh_cookie(response, result.refresh_token)
 
@@ -181,3 +186,49 @@ def logout(
 def me(current_user=Depends(get_current_user)) -> UserResponse:
     # get_current_user returns the User ORM instance (recommended).
     return UserResponse.model_validate(current_user)
+
+@router.post("/password-reset/request", response_model=MessageResponse)
+def password_reset_request(
+    req: PasswordResetRequest,
+    service: AuthService = Depends(get_auth_service),
+) -> MessageResponse:
+    """
+    Password reset request:
+    - Rturn 404 if user does not exist
+    - If user exists: generate token, store hash, send email
+    """
+    try:
+        service.request_password_reset(email=req.email)
+    except UserNotFound:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=" 사용자가 존재하지 않습니다.")
+    except InactiveUser:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="비활성화된 사용자입니다.")
+    except PasswordResetEmailSendFailed:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="이메일 전송에 실패하였습니다.",
+        )
+
+    return MessageResponse(message="비밀번호 재설정 링크를 이메일로 전송했습니다.")
+
+
+@router.post("/password-reset/confirm", response_model=MessageResponse)
+def password_reset_confirm(
+    req: PasswordResetConfirmRequest,
+    service: AuthService = Depends(get_auth_service),
+) -> MessageResponse:
+    """
+    Password reset confirm:
+    - Validate token (unused, unexpired)
+    - Set new password hash
+    - Mark token used
+    - Revoke all refresh tokens for user (log out everywhere)
+    """
+    try:
+        service.confirm_password_reset(token=req.token, new_password=req.new_password)
+    except InvalidPasswordResetToken:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="유효하지 않은 리셋 토큰입니다.")
+    except InactiveUser:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="비활성화된 사용자입니다.")
+
+    return MessageResponse(message="비밀번호가 성공적으로 재설정되었습니다.")
