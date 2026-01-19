@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.models.event import Event, Option, EventStatusType, MembershipStatusType
 from app.models.content import Assumption, Criterion
+from app.models.proposal import ProposalCategoryType
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -23,6 +24,19 @@ from app.schemas.event import (
     AssumptionAttachRequest,
     CriterionAttachRequest,
     EventListItemResponse,
+    EventOverviewResponse,
+    EventSettingResponse,
+    EventDetailResponse,
+    AssumptionProposalInfo,
+    CriteriaProposalInfo,
+    ConclusionProposalInfo,
+    AssumptionWithProposals,
+    CriterionWithProposals,
+    ProposalVoteInfo,
+    OptionInfo,
+    AdminInfo,
+    AssumptionInfo,
+    CriterionInfo,
 )
 
 
@@ -205,7 +219,7 @@ class EventService:
         self,
         event_id: UUID,
         user_id: UUID
-    ) -> dict:
+    ) -> EventOverviewResponse:
         """
         이벤트 오버뷰 정보 조회
         - event, options, admin, participant_count, membership_status, can_enter 반환
@@ -233,25 +247,25 @@ class EventService:
         # can_enter 결정 (ACCEPTED일 때만 true)
         can_enter = membership_status == MembershipStatusType.ACCEPTED if membership_status else False
         
-        return {
-            "event": {
+        return EventOverviewResponse(
+            event={
                 "id": event.id,
                 "decision_subject": event.decision_subject,
                 "event_status": event.event_status,
                 "entrance_code": event.entrance_code,
             },
-            "options": [
-                {"id": option.id, "content": option.content}
+            options=[
+                OptionInfo(id=option.id, content=option.content)
                 for option in event.options
             ],
-            "admin": {
-                "id": event.admin.id,
-                "email": event.admin.email,
-            },
-            "participant_count": participant_count,
-            "membership_status": membership_status,
-            "can_enter": can_enter,
-        }
+            admin=AdminInfo(
+                id=event.admin.id,
+                email=event.admin.email,
+            ),
+            participant_count=participant_count,
+            membership_status=membership_status,
+            can_enter=can_enter,
+        )
 
     def _create_event_from_request(
         self,
@@ -532,7 +546,7 @@ class EventService:
         self,
         event_id: UUID,
         user_id: UUID
-    ) -> dict:
+    ) -> EventSettingResponse:
         """
         이벤트 설정 편집용 정보 조회
         - 관리자 권한 확인 후 설정 정보 반환
@@ -549,26 +563,209 @@ class EventService:
                 detail=f"Event with id {event_id} not found"
             )
         
-        return {
-            "decision_subject": event_with_all.decision_subject,
-            "options": [
-                {"id": option.id, "content": option.content}
+        return EventSettingResponse(
+            decision_subject=event_with_all.decision_subject,
+            options=[
+                OptionInfo(id=option.id, content=option.content)
                 for option in event_with_all.options
             ],
-            "assumptions": [
-                {"id": assumption.id, "content": assumption.content}
+            assumptions=[
+                AssumptionInfo(id=assumption.id, content=assumption.content)
                 for assumption in event_with_all.assumptions
             ],
-            "criteria": [
-                {"id": criterion.id, "content": criterion.content}
+            criteria=[
+                CriterionInfo(id=criterion.id, content=criterion.content)
                 for criterion in event_with_all.criteria
             ],
-            "max_membership": event_with_all.max_membership,
-            "assumption_is_auto_approved_by_votes": event_with_all.assumption_is_auto_approved_by_votes,
-            "assumption_min_votes_required": event_with_all.assumption_min_votes_required,
-            "criteria_is_auto_approved_by_votes": event_with_all.criteria_is_auto_approved_by_votes,
-            "criteria_min_votes_required": event_with_all.criteria_min_votes_required,
-            "conclusion_approval_threshold_percent": event_with_all.conclusion_approval_threshold_percent,
-            "membership_is_auto_approved": event_with_all.membership_is_auto_approved,
-            "entrance_code": event_with_all.entrance_code,
-        }
+            max_membership=event_with_all.max_membership,
+            assumption_is_auto_approved_by_votes=event_with_all.assumption_is_auto_approved_by_votes,
+            assumption_min_votes_required=event_with_all.assumption_min_votes_required,
+            criteria_is_auto_approved_by_votes=event_with_all.criteria_is_auto_approved_by_votes,
+            criteria_min_votes_required=event_with_all.criteria_min_votes_required,
+            conclusion_approval_threshold_percent=event_with_all.conclusion_approval_threshold_percent,
+            membership_is_auto_approved=event_with_all.membership_is_auto_approved,
+            entrance_code=event_with_all.entrance_code,
+        )
+
+    def get_event_detail(
+        self,
+        event_id: UUID,
+        user_id: UUID
+    ) -> EventDetailResponse:
+        """
+        이벤트 상세 조회 (Event 4-0-0 페이지용)
+        - 주제, 선택지, 전제, 기준, 각각에 대한 제안 조회
+        - 각 제안에 대한 투표 정보 포함
+        """
+        # 이벤트 조회 (options, assumptions, criteria, admin 조인)
+        event = self.repos.event.get_event_with_all_relations(event_id)
+        
+        if not event:
+            raise NotFoundError(
+                message="Event not found",
+                detail=f"Event with id {event_id} not found"
+            )
+        
+        # 멤버십 확인 (ACCEPTED 상태인지 확인)
+        membership_status = self.repos.event.get_membership_status(user_id, event_id)
+        if membership_status != MembershipStatusType.ACCEPTED:
+            from app.exceptions import ForbiddenError
+            raise ForbiddenError(
+                message="Forbidden",
+                detail="Only accepted members can view event details"
+            )
+        
+        # 관리자 여부 확인
+        is_admin = event.admin_id == user_id
+        
+        # 전제 제안 목록 조회
+        assumption_proposals = self.repos.proposal.get_assumption_proposals_by_event_id(
+            event_id, user_id
+        )
+        
+        # 기준 제안 목록 조회
+        criteria_proposals = self.repos.proposal.get_criteria_proposals_by_event_id(
+            event_id, user_id
+        )
+        
+        # 전제별 제안 그룹화
+        assumption_proposals_by_id: dict[UUID | None, list] = {}
+        assumption_creation_proposals = []
+        
+        for proposal in assumption_proposals:
+            # 투표 정보 조회
+            vote_count = len(proposal.votes)
+            user_vote = self.repos.proposal.get_user_vote_on_assumption_proposal(
+                proposal.id, user_id
+            )
+            has_voted = user_vote is not None
+            
+            proposal_info = AssumptionProposalInfo(
+                id=proposal.id,
+                assumption_id=proposal.assumption_id,
+                proposal_status=proposal.proposal_status,
+                proposal_category=proposal.proposal_category,
+                proposal_content=proposal.proposal_content,
+                reason=proposal.reason,
+                created_at=proposal.created_at,
+                created_by=proposal.created_by,
+                creator_email=proposal.creator.email if proposal.creator else None,
+                vote_info=ProposalVoteInfo(
+                    vote_count=vote_count,
+                    has_voted=has_voted
+                )
+            )
+            
+            if proposal.proposal_category == ProposalCategoryType.CREATION:
+                assumption_creation_proposals.append(proposal_info)
+            else:
+                assumption_id = proposal.assumption_id
+                if assumption_id not in assumption_proposals_by_id:
+                    assumption_proposals_by_id[assumption_id] = []
+                assumption_proposals_by_id[assumption_id].append(proposal_info)
+        
+        # 기준별 제안 그룹화 및 결론 제안 조회
+        criteria_proposals_by_id: dict[UUID | None, list] = {}
+        criteria_creation_proposals = []
+        
+        for proposal in criteria_proposals:
+            # 투표 정보 조회
+            vote_count = len(proposal.votes)
+            user_vote = self.repos.proposal.get_user_vote_on_criteria_proposal(
+                proposal.id, user_id
+            )
+            has_voted = user_vote is not None
+            
+            proposal_info = CriteriaProposalInfo(
+                id=proposal.id,
+                criteria_id=proposal.criteria_id,
+                proposal_status=proposal.proposal_status,
+                proposal_category=proposal.proposal_category,
+                proposal_content=proposal.proposal_content,
+                reason=proposal.reason,
+                created_at=proposal.created_at,
+                created_by=proposal.created_by,
+                creator_email=proposal.creator.email if proposal.creator else None,
+                vote_info=ProposalVoteInfo(
+                    vote_count=vote_count,
+                    has_voted=has_voted
+                )
+            )
+            
+            if proposal.proposal_category == ProposalCategoryType.CREATION:
+                criteria_creation_proposals.append(proposal_info)
+            else:
+                criteria_id = proposal.criteria_id
+                if criteria_id not in criteria_proposals_by_id:
+                    criteria_proposals_by_id[criteria_id] = []
+                criteria_proposals_by_id[criteria_id].append(proposal_info)
+        
+        # 전제 목록 구성
+        assumptions_with_proposals = []
+        for assumption in event.assumptions:
+            proposals = assumption_proposals_by_id.get(assumption.id, [])
+            assumptions_with_proposals.append(
+                AssumptionWithProposals(
+                    id=assumption.id,
+                    content=assumption.content,
+                    proposals=proposals
+                )
+            )
+        
+        # 기준 목록 구성 (결론 제안 포함)
+        criteria_with_proposals = []
+        for criterion in event.criteria:
+            proposals = criteria_proposals_by_id.get(criterion.id, [])
+            
+            # 결론 제안 조회
+            conclusion_proposals_raw = self.repos.proposal.get_conclusion_proposals_by_criterion_id(
+                criterion.id, user_id
+            )
+            conclusion_proposals = []
+            for cp in conclusion_proposals_raw:
+                vote_count = len(cp.votes)
+                user_vote = self.repos.proposal.get_user_vote_on_conclusion_proposal(
+                    cp.id, user_id
+                )
+                has_voted = user_vote is not None
+                
+                conclusion_proposals.append(
+                    ConclusionProposalInfo(
+                        id=cp.id,
+                        criterion_id=cp.criterion_id,
+                        proposal_status=cp.proposal_status,
+                        proposal_content=cp.proposal_content,
+                        created_at=cp.created_at,
+                        created_by=cp.created_by,
+                        creator_email=cp.creator.email if cp.creator else None,
+                        vote_info=ProposalVoteInfo(
+                            vote_count=vote_count,
+                            has_voted=has_voted
+                        )
+                    )
+                )
+            
+            criteria_with_proposals.append(
+                CriterionWithProposals(
+                    id=criterion.id,
+                    content=criterion.content,
+                    conclusion=criterion.conclusion,
+                    proposals=proposals,
+                    conclusion_proposals=conclusion_proposals
+                )
+            )
+        
+        return EventDetailResponse(
+            id=event.id,
+            decision_subject=event.decision_subject,
+            event_status=event.event_status,
+            is_admin=is_admin,
+            options=[
+                OptionInfo(id=option.id, content=option.content)
+                for option in event.options
+            ],
+            assumptions=assumptions_with_proposals,
+            criteria=criteria_with_proposals,
+            assumption_creation_proposals=assumption_creation_proposals,
+            criteria_creation_proposals=criteria_creation_proposals,
+        )

@@ -21,6 +21,7 @@ from app.schemas.event import (
     BulkMembershipResponse,
     EventSettingResponse,
     MembershipListItemResponse,
+    EventDetailResponse,
 )
 from app.dependencies.auth import get_current_user
 from app.dependencies.services import get_event_service, get_membership_service
@@ -146,18 +147,32 @@ def get_event_overview(
     이벤트 오버뷰 정보 조회 API
     - event, options, admin, participant_count, membership_status, can_enter 반환
     """
-    overview_data = event_service.get_event_overview(
+    return event_service.get_event_overview(
         event_id=event_id,
         user_id=current_user.id
     )
-    return EventOverviewResponse(**overview_data)
 
 
 # ============================================================================
 # Event (4-0-0) 관련 API
 # ============================================================================
 
-# TODO: GET /events/{event_id} - 이벤트 상세 조회
+@router.get("/events/{event_id}", response_model=EventDetailResponse)
+def get_event_detail(
+    event_id: UUID,
+    current_user: User = Depends(get_current_user),
+    event_service: EventService = Depends(get_event_service),
+) -> EventDetailResponse:
+    """
+    이벤트 상세 조회 API (Event 4-0-0 페이지용)
+    - 주제, 선택지, 전제, 기준, 각각에 대한 제안 조회
+    - 각 제안에 대한 투표 정보 포함
+    - ACCEPTED 멤버십만 조회 가능
+    """
+    return event_service.get_event_detail(
+        event_id=event_id,
+        user_id=current_user.id
+    )
 # TODO: POST /events/{event_id}/assumption-proposals - 전제 제안 생성
 # TODO: POST /events/{event_id}/criteria-proposals - 기준 제안 생성
 # TODO: POST /events/{event_id}/assumption-proposals/{proposal_id}/votes - 전제 제안 투표
@@ -185,11 +200,10 @@ def get_event_setting(
     - 수정하기 위해 보여줘야 할 정보 반환
     - overview와 유사하지만 편집을 위한 모든 정보 포함
     """
-    setting_data = event_service.get_event_setting(
+    return event_service.get_event_setting(
         event_id=event_id,
         user_id=current_user.id
     )
-    return EventSettingResponse(**setting_data)
 
 
 @router.patch("/events/{event_id}", response_model=EventResponse)
