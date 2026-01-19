@@ -11,7 +11,7 @@ from sqlalchemy import select, update, delete
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload
 
-from app.models import User, UserIdentity, RefreshToken
+from app.models import User, UserIdentity, RefreshToken, PasswordResetToken
 
 
 # ---------------------------------------------------------------------
@@ -49,6 +49,8 @@ def _raise_unique_violation(err: IntegrityError, *, default_field: str) -> None:
     if "uq_provider_provider_user_id" in msg or ("provider" in msg and "provider_user_id" in msg):
         raise UniqueViolation(field="provider_user_id") from err
     if "uq_refresh_user_token_hash" in msg or "token_hash" in msg:
+        raise UniqueViolation(field="token_hash") from err
+    if "uq_password_reset_token_hash" in msg or ("password_reset_tokens" in msg and "token_hash" in msg):
         raise UniqueViolation(field="token_hash") from err
 
     raise UniqueViolation(field=default_field) from err
@@ -89,7 +91,18 @@ class UserRepository:
         stmt = update(User).where(User.id == user_id).values(is_active=is_active)
         result = self.db.execute(stmt)
         return len(result.scalars().all())
-
+    
+    def set_password_hash(self, *, user_id: UUID, password_hash: str) -> int:
+        """
+        Returns number of rows updated.
+        """
+        stmt = (
+            update(User)
+            .where(User.id == user_id)
+            .values(password_hash=password_hash)
+        )
+        result = self.db.execute(stmt)
+        return result.rowcount or 0
 
 # ---------------------------------------------------------------------
 # UserIdentityRepository
@@ -283,6 +296,86 @@ class RefreshTokenRepository:
         stmt = delete(RefreshToken).where(
             RefreshToken.expires_at < cutoff,
             RefreshToken.revoked_at.is_not(None),
+        )
+        result = self.db.execute(stmt)
+        return result.rowcount or 0
+
+# ---------------------------------------------------------------------
+# PasswordResetTokenRepository
+# ---------------------------------------------------------------------
+
+class PasswordResetTokenRepository:
+    def __init__(self, db: Session):
+        self.db = db
+
+    def create(
+        self,
+        *,
+        user_id: UUID,
+        token_hash: str,
+        expires_at: datetime,
+    ) -> PasswordResetToken:
+        prt = PasswordResetToken(
+            user_id=user_id,
+            token_hash=token_hash,
+            expires_at=expires_at,
+            used_at=None,
+        )
+        self.db.add(prt)
+        try:
+            self.db.flush()
+        except IntegrityError as e:
+            _raise_unique_violation(e, default_field="token_hash")
+        return prt
+
+    def get_active_by_hash(self, *, token_hash: str, now: datetime) -> Optional[PasswordResetToken]:
+        """
+        Active reset token = (used_at IS NULL) AND (expires_at > now)
+        """
+        stmt = select(PasswordResetToken).where(
+            PasswordResetToken.token_hash == token_hash,
+            PasswordResetToken.used_at.is_(None),
+            PasswordResetToken.expires_at > now,
+        )
+        return self.db.execute(stmt).scalar_one_or_none()
+
+    def mark_used_by_hash(self, *, token_hash: str, used_at: datetime) -> int:
+        """
+        Marks token used if not already used. Returns rows updated.
+        """
+        stmt = (
+            update(PasswordResetToken)
+            .where(
+                PasswordResetToken.token_hash == token_hash,
+                PasswordResetToken.used_at.is_(None),
+            )
+            .values(used_at=used_at)
+        )
+        result = self.db.execute(stmt)
+        return result.rowcount or 0
+
+    def invalidate_all_for_user(self, *, user_id: UUID, used_at: datetime) -> int:
+        """
+        Optional policy: when issuing a new token, invalidate any prior unused tokens
+        so only the latest link works. Returns rows updated.
+        """
+        stmt = (
+            update(PasswordResetToken)
+            .where(
+                PasswordResetToken.user_id == user_id,
+                PasswordResetToken.used_at.is_(None),
+            )
+            .values(used_at=used_at)
+        )
+        result = self.db.execute(stmt)
+        return result.rowcount or 0
+
+    def delete_expired_before(self, *, cutoff: datetime) -> int:
+        """
+        Optional cleanup: delete tokens expired before cutoff.
+        """
+        stmt = delete(PasswordResetToken).where(
+            PasswordResetToken.expires_at < cutoff,
         )
         result = self.db.execute(stmt)
         return result.rowcount or 0

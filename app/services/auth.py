@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+from datetime import timedelta
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Optional
@@ -11,6 +13,7 @@ from sqlalchemy.orm import Session
 
 from app.repositories.auth import (
     RefreshTokenRepository,
+    PasswordResetTokenRepository,
     UserIdentityRepository,
     UserRepository,
     UniqueViolation,
@@ -19,6 +22,8 @@ from app.schemas.auth import CurrentUser
 from app.utils.security import (
     create_access_token,
     create_refresh_token,
+    create_password_reset_token,
+    hash_password_reset_token,
     hash_password,
     hash_refresh_token,
     utcnow,
@@ -26,6 +31,7 @@ from app.utils.security import (
     verify_token,
 )
 from app.utils.google_auth import GoogleAuthError, verify_google_id_token
+from app.utils.mailer import MailerError, SendGridMailer
 
 # ---------------------------------------------------------------------
 # Service-level errors (router maps these to HTTP responses)
@@ -60,6 +66,14 @@ class LocalLoginNotAvailable(AuthServiceError):
     def __init__(self, provider: str = "google"):
         self.provider = provider
 
+class UserNotFound(AuthServiceError):
+    pass
+
+class InvalidPasswordResetToken(AuthServiceError):
+    pass
+
+class PasswordResetEmailSendFailed(AuthServiceError):
+    pass
 # ---------------------------------------------------------------------
 # Return type for service methods (router sets cookie from refresh_token)
 # ---------------------------------------------------------------------
@@ -85,12 +99,15 @@ class AuthService:
         user_repo: UserRepository,
         identity_repo: UserIdentityRepository,
         token_repo: RefreshTokenRepository,
+        reset_repo: PasswordResetTokenRepository,
+        mailer: SendGridMailer,
     ):
         self.db = db
         self.user_repo = user_repo
         self.identity_repo = identity_repo
         self.token_repo = token_repo
-
+        self.reset_repo = reset_repo
+        self.mailer = mailer
     # -------------------------
     # Core helpers
     # -------------------------
@@ -110,6 +127,19 @@ class AuthService:
 
         refresh_expires_at = _exp_to_datetime_utc(exp)
         return access, refresh, refresh_expires_at
+    
+    def _password_reset_ttl(self) -> timedelta:
+        minutes = int(os.getenv("PASSWORD_RESET_TOKEN_EXPIRE_MINUTES", "30"))
+        return timedelta(minutes=minutes)
+
+    def _build_password_reset_link(self, raw_token: str) -> str:
+        """
+        Frontend URL should be something like: https://.../reset-password
+        """
+        base = os.getenv("FRONTEND_BASE_URL", "").strip().rstrip("/")
+        if not base:
+            raise RuntimeError("FRONTEND_BASE_URL is not set")
+        return f"{base}/reset-password?token={raw_token}"
 
     # -------------------------
     # Public service methods
@@ -342,3 +372,68 @@ class AuthService:
         now = utcnow()
         with self.db.begin():
             self.token_repo.revoke_by_hash(token_hash=token_hash, revoked_at=now)
+
+    def request_password_reset(self, *, email: str) -> None:
+        """
+        Class-project policy: if user does not exist -> raise UserNotFound.
+        If exists:
+          - invalidate previous unused reset tokens for that user
+          - create new reset token row (store hash + expiry)
+          - send email via SendGrid with reset link
+        """
+        now = utcnow()
+
+        
+        with self.db.begin():
+            # 1) Find user (outside transaction is fine)
+            user = self.user_repo.get_by_email(email)
+            if not user:
+                raise UserNotFound()
+            if not user.is_active:
+                raise InactiveUser()
+
+            # 2) Create token + persist DB row
+            raw = create_password_reset_token()
+            token_hash = hash_password_reset_token(raw)
+            expires_at = now + self._password_reset_ttl()
+
+            # latest-only semantics
+            self.reset_repo.invalidate_all_for_user(user_id=user.id, used_at=now)
+            self.reset_repo.create(user_id=user.id, token_hash=token_hash, expires_at=expires_at)
+
+        # 3) Send email after commit (avoid keeping TX open)
+        link = self._build_password_reset_link(raw)
+        try:
+            self.mailer.send_password_reset_email(to_email=email, reset_link=link)
+        except MailerError as e:
+            raise PasswordResetEmailSendFailed() from e
+        
+    def confirm_password_reset(self, *, token: str, new_password: str) -> None:
+        """
+        Validate token (exists, unused, not expired), set new password hash,
+        mark token used, and revoke all refresh tokens for user.
+        """
+        now = utcnow()
+        token_hash = hash_password_reset_token(token)
+
+        with self.db.begin():
+            prt = self.reset_repo.get_active_by_hash(token_hash=token_hash, now=now)
+            if not prt:
+                raise InvalidPasswordResetToken()
+
+            user = self.user_repo.get_by_id(prt.user_id)
+            if not user or not user.is_active:
+                raise InvalidPasswordResetToken()
+
+            # Update password
+            pw_hash = hash_password(new_password)
+            updated = self.user_repo.set_password_hash(user_id=user.id, password_hash=pw_hash)
+            if updated != 1:
+                raise InvalidPasswordResetToken()
+
+            # Consume token (one-time use)
+            self.reset_repo.mark_used_by_hash(token_hash=token_hash, used_at=now)
+
+            # Invalidate sessions (important with refresh-cookie auth)
+            self.token_repo.revoke_all_for_user(user_id=user.id, revoked_at=now)
+

@@ -19,6 +19,7 @@ passlib[bcrypt]==1.7.4
 bcrypt==4.0.1            # 비밀번호 해싱
 google-auth>=2.0.0
 requests>=2.31.0                   # google-auth의 HTTP 요청을 위해 필요
+sendgrid>=6.11.0                   # 비밀번호 재설정 메일
 
 # Utilities
 python-dotenv==1.2.1

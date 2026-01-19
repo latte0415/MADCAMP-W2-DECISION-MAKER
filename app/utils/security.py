@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import base64
 import os
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -170,6 +171,15 @@ def create_refresh_token(
 
     return jwt.encode(payload, secret_key, algorithm=algorithm)
 
+def create_password_reset_token(*, nbytes: int = 32) -> str:
+    """
+    Create a URL-safe password reset token suitable for including in a link.
+    Uses cryptographically secure randomness (os.urandom).
+    """
+    if not isinstance(nbytes, int) or nbytes < 16:
+        raise ValueError("nbytes must be an int >= 16")
+    raw = os.urandom(nbytes)
+    return base64.urlsafe_b64encode(raw).rstrip(b"=").decode("ascii")
 
 def verify_token(
     token: str,
@@ -214,13 +224,22 @@ def verify_token(
 
 
 # ---------------------------------------------------------------------
-# Refresh token hashing for DB storage (deterministic)
+# token hashing for DB storage (deterministic)
 # ---------------------------------------------------------------------
 
 def hash_refresh_token(token: str) -> str:
     """
     Deterministically hash the refresh token for DB storage.
     Use this when writing/looking up refresh_tokens.token_hash.
+    """
+    if not token or not isinstance(token, str):
+        raise ValueError("token must be a non-empty string")
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+def hash_password_reset_token(token: str) -> str:
+    """
+    Deterministically hash the password reset token for DB storage.
+    Use this when writing/looking up password_reset_tokens.token_hash.
     """
     if not token or not isinstance(token, str):
         raise ValueError("token must be a non-empty string")
