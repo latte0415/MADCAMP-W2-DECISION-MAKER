@@ -9,7 +9,9 @@ from sqlalchemy.orm import Session
 from app.db import get_db
 from app.repositories.auth import RefreshTokenRepository, UserIdentityRepository, UserRepository
 from app.services.auth import AuthService
-
+from app.repositories.auth import PasswordResetTokenRepository
+from app.utils.mailer import SendGridMailer
+from app.dependencies.auth import get_mailer, get_password_reset_token_repository
 # Event 관련
 from app.dependencies.repositories import get_event_repository
 from app.dependencies.services import get_event_service
@@ -32,8 +34,10 @@ def get_auth_service(
     user_repo: UserRepository = Depends(get_user_repository),
     identity_repo: UserIdentityRepository = Depends(get_user_identity_repository),
     token_repo: RefreshTokenRepository = Depends(get_refresh_token_repository),
+    reset_repo: PasswordResetTokenRepository = Depends(get_password_reset_token_repository),
+    mailer: SendGridMailer = Depends(get_mailer),
 ) -> AuthService:
-    return AuthService(db=db, user_repo=user_repo, identity_repo=identity_repo, token_repo=token_repo)
+    return AuthService(db=db, user_repo=user_repo, identity_repo=identity_repo, token_repo=token_repo, reset_repo=reset_repo, mailer=mailer)
 
 
 # get_current_user는 auth.py에서 재export
