@@ -8,6 +8,7 @@ from app.repositories.event_repository import EventRepository
 from app.repositories.content.option import OptionRepository
 from app.repositories.content.assumption import AssumptionRepository
 from app.repositories.content.criterion import CriterionRepository
+from app.repositories.content.comment import CommentRepository
 from app.repositories.proposal import ProposalRepository
 
 
@@ -19,4 +20,5 @@ class EventAggregateRepositories:
         self.option = OptionRepository(db)
         self.assumption = AssumptionRepository(db)
         self.criterion = CriterionRepository(db)
+        self.comment = CommentRepository(db)
         self.proposal = ProposalRepository(db)

@@ -5,13 +5,16 @@ from app.db import get_db
 from app.services.event import EventService
 from app.services.event.membership_service import MembershipService
 from app.services.event.proposal_service import ProposalService
+from app.services.event.comment_service import CommentService
 from app.dependencies.aggregate_repositories import EventAggregateRepositories
 from app.repositories.event_repository import EventRepository
 from app.repositories.membership_repository import MembershipRepository
+from app.repositories.content.comment import CommentRepository
 from app.dependencies.repositories import (
     get_event_aggregate_repositories,
     get_membership_repository,
     get_event_repository,
+    get_comment_repository,
 )
 
 
@@ -44,3 +47,12 @@ def get_proposal_service(
 ) -> ProposalService:
     """ProposalService 의존성 주입"""
     return ProposalService(db=db, repos=repos)
+
+
+def get_comment_service(
+    db: Session = Depends(get_db),
+    repos: EventAggregateRepositories = Depends(get_event_aggregate_repositories),
+    comment_repo: CommentRepository = Depends(get_comment_repository),
+) -> CommentService:
+    """CommentService 의존성 주입"""
+    return CommentService(db=db, repos=repos, comment_repo=comment_repo)

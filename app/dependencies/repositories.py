@@ -7,6 +7,7 @@ from app.repositories.event_repository import EventRepository
 from app.repositories.content.option import OptionRepository
 from app.repositories.content.assumption import AssumptionRepository
 from app.repositories.content.criterion import CriterionRepository
+from app.repositories.content.comment import CommentRepository
 from app.repositories.membership_repository import MembershipRepository
 
 
@@ -40,3 +41,8 @@ def get_criterion_repository(db: Session = Depends(get_db)) -> CriterionReposito
 def get_membership_repository(db: Session = Depends(get_db)) -> MembershipRepository:
     """MembershipRepository 의존성 주입"""
     return MembershipRepository(db)
+
+
+def get_comment_repository(db: Session = Depends(get_db)) -> CommentRepository:
+    """CommentRepository 의존성 주입"""
+    return CommentRepository(db)

@@ -69,6 +69,15 @@ from app.schemas.event.membership import (
     MembershipListItemResponse,
 )
 
+# Comment schemas
+from app.schemas.event.comment import (
+    CommentCreateRequest,
+    CommentUpdateRequest,
+    CommentResponse,
+    CommentCountResponse,
+    CommentCreatorInfo,
+)
+
 __all__ = [
     # Common
     "OptionInfo",
@@ -118,4 +127,10 @@ __all__ = [
     "ConclusionProposalCreateRequest",
     "ConclusionProposalResponse",
     "ConclusionProposalVoteResponse",
+    # Comment
+    "CommentCreateRequest",
+    "CommentUpdateRequest",
+    "CommentResponse",
+    "CommentCountResponse",
+    "CommentCreatorInfo",
 ]
