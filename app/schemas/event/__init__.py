@@ -46,6 +46,9 @@ from app.schemas.event.proposal import (
     CriteriaProposalCreateRequest,
     CriteriaProposalResponse,
     CriteriaProposalVoteResponse,
+    ConclusionProposalCreateRequest,
+    ConclusionProposalResponse,
+    ConclusionProposalVoteResponse,
 )
 
 # Setting schemas
@@ -112,4 +115,7 @@ __all__ = [
     "CriteriaProposalCreateRequest",
     "CriteriaProposalResponse",
     "CriteriaProposalVoteResponse",
+    "ConclusionProposalCreateRequest",
+    "ConclusionProposalResponse",
+    "ConclusionProposalVoteResponse",
 ]

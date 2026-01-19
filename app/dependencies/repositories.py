@@ -4,9 +4,9 @@ from sqlalchemy.orm import Session
 from app.db import get_db
 from app.dependencies.aggregate_repositories import EventAggregateRepositories
 from app.repositories.event_repository import EventRepository
-from app.repositories.option_repository import OptionRepository
-from app.repositories.assumption_repository import AssumptionRepository
-from app.repositories.criterion_repository import CriterionRepository
+from app.repositories.content.option import OptionRepository
+from app.repositories.content.assumption import AssumptionRepository
+from app.repositories.content.criterion import CriterionRepository
 from app.repositories.membership_repository import MembershipRepository
 
 

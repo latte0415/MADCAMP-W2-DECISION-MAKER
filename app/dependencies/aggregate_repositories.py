@@ -5,10 +5,10 @@ Repository Aggregate 패턴 구현
 from sqlalchemy.orm import Session
 
 from app.repositories.event_repository import EventRepository
-from app.repositories.option_repository import OptionRepository
-from app.repositories.assumption_repository import AssumptionRepository
-from app.repositories.criterion_repository import CriterionRepository
-from app.repositories.proposal_repository import ProposalRepository
+from app.repositories.content.option import OptionRepository
+from app.repositories.content.assumption import AssumptionRepository
+from app.repositories.content.criterion import CriterionRepository
+from app.repositories.proposal import ProposalRepository
 
 
 class EventAggregateRepositories:

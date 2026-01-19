@@ -29,6 +29,9 @@ from app.schemas.event import (
     CriteriaProposalCreateRequest,
     CriteriaProposalResponse,
     CriteriaProposalVoteResponse,
+    ConclusionProposalCreateRequest,
+    ConclusionProposalResponse,
+    ConclusionProposalVoteResponse,
 )
 from app.dependencies.auth import get_current_user
 from app.dependencies.services import (
@@ -320,8 +323,76 @@ def delete_criteria_proposal_vote(
     )
 
 
-# TODO: POST /events/{event_id}/criteria/{criterion_id}/conclusion-proposals - 결론 제안 생성
-# TODO: POST /events/{event_id}/conclusion-proposals/{proposal_id}/votes - 결론 제안 투표
+@router.post(
+    "/events/{event_id}/criteria/{criterion_id}/conclusion-proposals",
+    response_model=ConclusionProposalResponse,
+    status_code=status.HTTP_201_CREATED
+)
+def create_conclusion_proposal(
+    event_id: UUID,
+    criterion_id: UUID,
+    request: ConclusionProposalCreateRequest,
+    current_user: User = Depends(get_current_user),
+    proposal_service: ProposalService = Depends(get_proposal_service),
+) -> ConclusionProposalResponse:
+    """
+    결론 제안 생성 API
+    - IN_PROGRESS 상태에서만 가능
+    - ACCEPTED 멤버십 필요
+    """
+    return proposal_service.create_conclusion_proposal(
+        event_id=event_id,
+        criterion_id=criterion_id,
+        request=request,
+        user_id=current_user.id
+    )
+
+
+@router.post(
+    "/events/{event_id}/conclusion-proposals/{proposal_id}/votes",
+    response_model=ConclusionProposalVoteResponse,
+    status_code=status.HTTP_201_CREATED
+)
+def create_conclusion_proposal_vote(
+    event_id: UUID,
+    proposal_id: UUID,
+    current_user: User = Depends(get_current_user),
+    proposal_service: ProposalService = Depends(get_proposal_service),
+) -> ConclusionProposalVoteResponse:
+    """
+    결론 제안 투표 생성 API
+    - IN_PROGRESS 상태에서만 가능
+    - PENDING 제안에만 투표 가능
+    """
+    return proposal_service.create_conclusion_proposal_vote(
+        event_id=event_id,
+        proposal_id=proposal_id,
+        user_id=current_user.id
+    )
+
+
+@router.delete(
+    "/events/{event_id}/conclusion-proposals/{proposal_id}/votes",
+    response_model=ConclusionProposalVoteResponse
+)
+def delete_conclusion_proposal_vote(
+    event_id: UUID,
+    proposal_id: UUID,
+    current_user: User = Depends(get_current_user),
+    proposal_service: ProposalService = Depends(get_proposal_service),
+) -> ConclusionProposalVoteResponse:
+    """
+    결론 제안 투표 삭제 API
+    - IN_PROGRESS 상태에서만 가능
+    - 본인 투표만 삭제 가능
+    """
+    return proposal_service.delete_conclusion_proposal_vote(
+        event_id=event_id,
+        proposal_id=proposal_id,
+        user_id=current_user.id
+    )
+
+
 # TODO: GET /events/{event_id}/criteria/{criterion_id}/comments - 코멘트 조회
 # TODO: POST /events/{event_id}/criteria/{criterion_id}/comments - 코멘트 생성
 # TODO: PATCH /events/{event_id}/comments/{comment_id} - 코멘트 수정

@@ -88,3 +88,39 @@ class CriteriaProposalVoteResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+# ============================================================================
+# Conclusion Proposal Schemas
+# ============================================================================
+
+class ConclusionProposalCreateRequest(BaseModel):
+    """결론 제안 생성 요청"""
+    proposal_content: str  # 필수
+    # reason 없음, proposal_category 없음
+
+
+class ConclusionProposalResponse(BaseModel):
+    """결론 제안 응답"""
+    id: UUID
+    criterion_id: UUID
+    proposal_status: ProposalStatusType
+    proposal_content: str
+    created_at: datetime
+    created_by: UUID
+    vote_count: int
+    has_voted: bool
+
+    class Config:
+        from_attributes = True
+
+
+class ConclusionProposalVoteResponse(BaseModel):
+    """결론 제안 투표 응답"""
+    message: str
+    vote_id: UUID
+    proposal_id: UUID
+    vote_count: int
+
+    class Config:
+        from_attributes = True
