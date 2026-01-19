@@ -56,14 +56,14 @@ def _set_refresh_cookie(response: Response, refresh_token: str) -> None:
         samesite="lax",
         # Only send this cookie to the refresh endpoint. + THE LOGOUT ENDPOINT AS WELL
         # This reduces accidental exposure to other endpoints.
-        path="/api/auth",
+        path="/auth",
         max_age=_refresh_cookie_max_age_seconds(),
     )
 
 
 def _clear_refresh_cookie(response: Response) -> None:
     # Path must match the one used to set it
-    response.delete_cookie(key=REFRESH_COOKIE_NAME, path="/api/auth")
+    response.delete_cookie(key=REFRESH_COOKIE_NAME, path="/auth")
 
 
 @router.post("/signup", response_model=TokenResponse, status_code=status.HTTP_201_CREATED)

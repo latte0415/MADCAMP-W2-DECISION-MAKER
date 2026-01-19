@@ -216,7 +216,7 @@ async def health():
     return {"status": "ok"}
 
 # Auth 라우터 등록
-app.include_router(auth.router, prefix="/api/auth", tags=["auth"])  # 추가
+app.include_router(auth.router, prefix="/auth", tags=["auth"])  # 추가
 ```
 
 ### 구현 순서 추천 (레이어드 아키텍처 기준)

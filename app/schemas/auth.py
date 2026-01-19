@@ -53,14 +53,14 @@ class GoogleLoginRequest(BaseModel):
 
 class PasswordResetRequest(BaseModel):
     """
-    POST /api/auth/password-reset/request
+    POST /auth/password-reset/request
     """
     email: EmailStr
 
 
 class PasswordResetConfirmRequest(BaseModel):
     """
-    POST /api/auth/password-reset/confirm
+    POST /auth/password-reset/confirm
     """
     token: str = Field(min_length=1)
     new_password: str = Field(min_length=8, max_length=20)
@@ -81,5 +81,5 @@ class TokenResponse(BaseModel):
 
 
 class MessageResponse(BaseModel):
-    """Response for POST /logout, as well as for POST /api/auth/password-reset/confirm and POST /api/auth/password-reset/request"""
+    """Response for POST /logout, as well as for POST /auth/password-reset/confirm and POST /auth/password-reset/request"""
     message: str
