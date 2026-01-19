@@ -14,18 +14,18 @@
 
 ## API 요약
 
-### 인증 API (`/v1/auth`)
+### 인증 API (`/auth`)
 
 | Method | Endpoint | 설명 | 인증 |
 |--------|----------|------|------|
-| POST | `/v1/auth/signup` | 회원가입 | ❌ |
-| POST | `/v1/auth/login` | 로그인 (이메일/비밀번호) | ❌ |
-| POST | `/v1/auth/google` | 구글 로그인 | ❌ |
-| POST | `/v1/auth/refresh` | 액세스 토큰 갱신 | 🍪 |
-| POST | `/v1/auth/logout` | 로그아웃 | 🍪 |
-| GET | `/v1/auth/me` | 현재 사용자 정보 조회 | 🔐 |
-| POST | `/v1/auth/password-reset/request` | 비밀번호 재설정 요청 | ❌ |
-| POST | `/v1/auth/password-reset/confirm` | 비밀번호 재설정 확인 | ❌ |
+| POST | `/auth/signup` | 회원가입 | ❌ |
+| POST | `/auth/login` | 로그인 (이메일/비밀번호) | ❌ |
+| POST | `/auth/google` | 구글 로그인 | ❌ |
+| POST | `/auth/refresh` | 액세스 토큰 갱신 | 🍪 |
+| POST | `/auth/logout` | 로그아웃 | 🍪 |
+| GET | `/auth/me` | 현재 사용자 정보 조회 | 🔐 |
+| POST | `/auth/password-reset/request` | 비밀번호 재설정 요청 | ❌ |
+| POST | `/auth/password-reset/confirm` | 비밀번호 재설정 확인 | ❌ |
 
 **범례:**
 - ❌ 인증 불필요
@@ -147,9 +147,9 @@ Authorization: Bearer <access_token>
 
 ---
 
-## 인증 API (`/v1/auth`)
+## 인증 API (`/auth`)
 
-### POST /v1/auth/signup
+### POST /auth/signup
 
 회원가입
 
@@ -183,7 +183,7 @@ Authorization: Bearer <access_token>
 
 ---
 
-### POST /v1/auth/login
+### POST /auth/login
 
 로그인 (이메일/비밀번호)
 
@@ -216,7 +216,7 @@ Authorization: Bearer <access_token>
 
 ---
 
-### POST /v1/auth/google
+### POST /auth/google
 
 구글 로그인
 
@@ -246,7 +246,7 @@ Authorization: Bearer <access_token>
 
 ---
 
-### POST /v1/auth/refresh
+### POST /auth/refresh
 
 액세스 토큰 갱신
 
@@ -274,7 +274,7 @@ Authorization: Bearer <access_token>
 
 ---
 
-### POST /v1/auth/logout
+### POST /auth/logout
 
 로그아웃
 
@@ -290,7 +290,7 @@ Authorization: Bearer <access_token>
 
 ---
 
-### GET /v1/auth/me
+### GET /auth/me
 
 현재 사용자 정보 조회
 
@@ -308,7 +308,7 @@ Authorization: Bearer <access_token>
 
 ---
 
-### POST /v1/auth/password-reset/request
+### POST /auth/password-reset/request
 
 비밀번호 재설정 요청
 
@@ -333,7 +333,7 @@ Authorization: Bearer <access_token>
 
 ---
 
-### POST /v1/auth/password-reset/confirm
+### POST /auth/password-reset/confirm
 
 비밀번호 재설정 확인
 
