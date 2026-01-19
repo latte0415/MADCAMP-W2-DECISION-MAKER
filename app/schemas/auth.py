@@ -18,6 +18,7 @@ class CurrentUser(BaseModel):
 
     id: UUID
     email: str | None = None
+    name: str | None = None
     is_active: bool = True
 
 
@@ -27,6 +28,7 @@ class UserResponse(BaseModel):
 
     id: UUID
     email: str | None = None
+    name: str | None = None
     is_active: bool
     created_at: datetime | None = None
 
@@ -64,6 +66,13 @@ class PasswordResetConfirmRequest(BaseModel):
     """
     token: str = Field(min_length=1)
     new_password: str = Field(min_length=8, max_length=20)
+
+
+class UpdateNameRequest(BaseModel):
+    """
+    PATCH /auth/me/name
+    """
+    name: str = Field(min_length=1, max_length=100)
 
 # -----------------------------
 # Responses

@@ -24,6 +24,7 @@
 | POST | `/auth/refresh` | 액세스 토큰 갱신 | 🍪 |
 | POST | `/auth/logout` | 로그아웃 | 🍪 |
 | GET | `/auth/me` | 현재 사용자 정보 조회 | 🔐 |
+| PATCH | `/auth/me/name` | 사용자 이름 업데이트 | 🔐 |
 | POST | `/auth/password-reset/request` | 비밀번호 재설정 요청 | ❌ |
 | POST | `/auth/password-reset/confirm` | 비밀번호 재설정 확인 | ❌ |
 
@@ -90,8 +91,8 @@
 
 ### 통계
 
-- **총 구현된 API**: 25개
-  - 인증 API: 8개
+- **총 구현된 API**: 26개
+  - 인증 API: 9개
   - 이벤트 API: 15개
   - 개발용 API: 여러 개 (별도 문서 참조)
   - 기타: 2개
@@ -173,6 +174,7 @@ Authorization: Bearer <access_token>
   "user": {
     "id": "uuid",
     "email": "user@example.com",
+    "name": null,
     "is_active": true
   }
 }
@@ -203,6 +205,7 @@ Authorization: Bearer <access_token>
   "user": {
     "id": "uuid",
     "email": "user@example.com",
+    "name": null,
     "is_active": true
   }
 }
@@ -235,6 +238,7 @@ Authorization: Bearer <access_token>
   "user": {
     "id": "uuid",
     "email": "user@example.com",
+    "name": null,
     "is_active": true
   }
 }
@@ -261,6 +265,7 @@ Authorization: Bearer <access_token>
   "user": {
     "id": "uuid",
     "email": "user@example.com",
+    "name": null,
     "is_active": true
   }
 }
@@ -301,10 +306,44 @@ Authorization: Bearer <access_token>
 {
   "id": "uuid",
   "email": "user@example.com",
+  "name": "홍길동",
   "is_active": true,
   "created_at": "2024-01-01T00:00:00Z"
 }
 ```
+
+---
+
+### PATCH /auth/me/name
+
+사용자 이름 업데이트
+
+**인증:** Bearer Token 필수
+
+**Request Body:**
+```json
+{
+  "name": "홍길동"
+}
+```
+
+**Validation:**
+- `name`: 1-100자 (필수)
+
+**Response:** `200 OK`
+```json
+{
+  "message": "이름이 성공적으로 업데이트되었습니다."
+}
+```
+
+**에러:**
+- `404 Not Found`: 사용자를 찾을 수 없음
+- `400 Bad Request`: 이름 형식 오류 (1-100자)
+
+**참고:**
+- 회원가입 시 이름은 받지 않으며, 메인 화면에서 팝업으로 요청할 수 있습니다.
+- 이름은 NULL 가능하며, 없을 경우 `null`로 반환됩니다.
 
 ---
 

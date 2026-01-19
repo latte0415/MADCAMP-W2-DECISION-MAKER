@@ -15,6 +15,7 @@ from app.schemas.auth import (
     GoogleLoginRequest,
     PasswordResetRequest,
     PasswordResetConfirmRequest,
+    UpdateNameRequest,
 )
 from app.services.auth import (
     AuthService,
@@ -186,6 +187,23 @@ def logout(
 def me(current_user=Depends(get_current_user)) -> UserResponse:
     # get_current_user returns the User ORM instance (recommended).
     return UserResponse.model_validate(current_user)
+
+
+@router.patch("/me/name", response_model=MessageResponse)
+def update_name(
+    req: UpdateNameRequest,
+    current_user=Depends(get_current_user),
+    service: AuthService = Depends(get_auth_service),
+) -> MessageResponse:
+    """
+    Update user's name.
+    """
+    try:
+        service.update_name(user_id=current_user.id, name=req.name)
+    except UserNotFound:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="사용자를 찾을 수 없습니다.")
+    
+    return MessageResponse(message="이름이 성공적으로 업데이트되었습니다.")
 
 @router.post("/password-reset/request", response_model=MessageResponse)
 def password_reset_request(
