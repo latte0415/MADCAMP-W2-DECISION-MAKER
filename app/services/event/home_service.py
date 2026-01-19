@@ -1,5 +1,5 @@
-from uuid import UUID
 from typing import List
+from uuid import UUID
 
 from app.services.event.base import EventBaseService
 from app.schemas.event import EventListItemResponse

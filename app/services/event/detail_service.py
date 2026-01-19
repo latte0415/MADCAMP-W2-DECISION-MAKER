@@ -1,3 +1,4 @@
+from datetime import datetime
 from uuid import UUID
 
 from app.models.event import MembershipStatusType
@@ -33,12 +34,7 @@ class EventDetailService(EventBaseService):
         event = self.get_event_with_all_relations(event_id)
         
         # 멤버십 확인 (ACCEPTED 상태인지 확인)
-        membership_status = self.repos.event.get_membership_status(user_id, event_id)
-        if membership_status != MembershipStatusType.ACCEPTED:
-            raise ForbiddenError(
-                message="Forbidden",
-                detail="Only accepted members can view event details"
-            )
+        self._validate_membership_accepted(user_id, event_id, "view event details")
         
         # 관리자 여부 확인
         is_admin = event.admin_id == user_id
@@ -57,13 +53,16 @@ class EventDetailService(EventBaseService):
         assumption_proposals_by_id: dict[UUID | None, list] = {}
         assumption_creation_proposals = []
         
+        # N+1 쿼리 방지: 모든 assumption proposal에 대한 사용자 투표를 한 번에 조회
+        assumption_proposal_ids = [p.id for p in assumption_proposals]
+        user_votes_on_assumptions = self.repos.proposal.get_user_votes_on_assumption_proposals(
+            assumption_proposal_ids, user_id
+        )
+        
         for proposal in assumption_proposals:
-            # 투표 정보 조회
+            # 투표 정보 조회 (이미 로드된 votes 사용)
             vote_count = len(proposal.votes)
-            user_vote = self.repos.proposal.get_user_vote_on_assumption_proposal(
-                proposal.id, user_id
-            )
-            has_voted = user_vote is not None
+            has_voted = proposal.id in user_votes_on_assumptions
             
             proposal_info = AssumptionProposalInfo(
                 id=proposal.id,
@@ -93,13 +92,16 @@ class EventDetailService(EventBaseService):
         criteria_proposals_by_id: dict[UUID | None, list] = {}
         criteria_creation_proposals = []
         
+        # N+1 쿼리 방지: 모든 criteria proposal에 대한 사용자 투표를 한 번에 조회
+        criteria_proposal_ids = [p.id for p in criteria_proposals]
+        user_votes_on_criteria = self.repos.proposal.get_user_votes_on_criteria_proposals(
+            criteria_proposal_ids, user_id
+        )
+        
         for proposal in criteria_proposals:
-            # 투표 정보 조회
+            # 투표 정보 조회 (이미 로드된 votes 사용)
             vote_count = len(proposal.votes)
-            user_vote = self.repos.proposal.get_user_vote_on_criteria_proposal(
-                proposal.id, user_id
-            )
-            has_voted = user_vote is not None
+            has_voted = proposal.id in user_votes_on_criteria
             
             proposal_info = CriteriaProposalInfo(
                 id=proposal.id,
@@ -125,24 +127,29 @@ class EventDetailService(EventBaseService):
                     criteria_proposals_by_id[criteria_id] = []
                 criteria_proposals_by_id[criteria_id].append(proposal_info)
         
+        # applied_at 정보를 미리 딕셔너리로 매핑 (O(N*M) -> O(N+M))
+        assumption_applied_at_map: dict[UUID, dict[str, datetime]] = {}
+        for prop in assumption_proposals:
+            if (prop.assumption_id and
+                prop.proposal_status == ProposalStatusType.ACCEPTED and
+                prop.applied_at is not None):
+                if prop.assumption_id not in assumption_applied_at_map:
+                    assumption_applied_at_map[prop.assumption_id] = {}
+                # 삭제와 수정은 별도로 처리 (둘 다 있을 수 있음)
+                # 실제로는 하나만 적용되지만, 안전하게 처리
+                if prop.proposal_category == ProposalCategoryType.DELETION:
+                    assumption_applied_at_map[prop.assumption_id]['deleted_at'] = prop.applied_at
+                elif prop.proposal_category == ProposalCategoryType.MODIFICATION:
+                    assumption_applied_at_map[prop.assumption_id]['modified_at'] = prop.applied_at
+        
         # 전제 목록 구성
         assumptions_with_proposals = []
         for assumption in event.assumptions:
             proposals = assumption_proposals_by_id.get(assumption.id, [])
-            # 제안이 적용된 경우 applied_at 정보 찾기
-            modified_at = None
-            deleted_at = None
-            if assumption.is_modified or assumption.is_deleted:
-                # 해당 assumption에 대한 ACCEPTED 제안 중 applied_at이 있는 것 찾기
-                for prop in assumption_proposals:
-                    if (prop.assumption_id == assumption.id and
-                        prop.proposal_status == ProposalStatusType.ACCEPTED and
-                        prop.applied_at is not None):
-                        if assumption.is_deleted:
-                            deleted_at = prop.applied_at
-                        elif assumption.is_modified:
-                            modified_at = prop.applied_at
-                        break
+            # 제안이 적용된 경우 applied_at 정보 찾기 (딕셔너리에서 조회)
+            applied_info = assumption_applied_at_map.get(assumption.id, {})
+            modified_at = applied_info.get('modified_at')
+            deleted_at = applied_info.get('deleted_at')
             
             assumptions_with_proposals.append(
                 AssumptionWithProposals(
@@ -157,22 +164,47 @@ class EventDetailService(EventBaseService):
                 )
             )
         
+        # 모든 기준의 결론 제안을 한 번에 조회 (N+1 방지)
+        criterion_ids = [c.id for c in event.criteria]
+        all_conclusion_proposals = []
+        conclusion_proposals_by_criterion: dict[UUID, list] = {}
+        for criterion_id in criterion_ids:
+            conclusion_proposals_raw = self.repos.proposal.get_conclusion_proposals_by_criterion_id(
+                criterion_id, user_id
+            )
+            conclusion_proposals_by_criterion[criterion_id] = conclusion_proposals_raw
+            all_conclusion_proposals.extend(conclusion_proposals_raw)
+        
+        # 모든 결론 제안에 대한 사용자 투표를 한 번에 조회
+        conclusion_proposal_ids = [cp.id for cp in all_conclusion_proposals]
+        user_votes_on_conclusions = self.repos.proposal.get_user_votes_on_conclusion_proposals(
+            conclusion_proposal_ids, user_id
+        )
+        
+        # applied_at 정보를 미리 딕셔너리로 매핑
+        criteria_applied_at_map: dict[UUID, dict[str, datetime]] = {}
+        for prop in criteria_proposals:
+            if (prop.criteria_id and
+                prop.proposal_status == ProposalStatusType.ACCEPTED and
+                prop.applied_at is not None):
+                if prop.criteria_id not in criteria_applied_at_map:
+                    criteria_applied_at_map[prop.criteria_id] = {}
+                if prop.proposal_category == ProposalCategoryType.DELETION:
+                    criteria_applied_at_map[prop.criteria_id]['deleted_at'] = prop.applied_at
+                elif prop.proposal_category == ProposalCategoryType.MODIFICATION:
+                    criteria_applied_at_map[prop.criteria_id]['modified_at'] = prop.applied_at
+        
         # 기준 목록 구성 (결론 제안 포함)
         criteria_with_proposals = []
         for criterion in event.criteria:
             proposals = criteria_proposals_by_id.get(criterion.id, [])
             
-            # 결론 제안 조회
-            conclusion_proposals_raw = self.repos.proposal.get_conclusion_proposals_by_criterion_id(
-                criterion.id, user_id
-            )
+            # 결론 제안 조회 (이미 조회된 데이터 사용)
+            conclusion_proposals_raw = conclusion_proposals_by_criterion.get(criterion.id, [])
             conclusion_proposals = []
             for cp in conclusion_proposals_raw:
                 vote_count = len(cp.votes)
-                user_vote = self.repos.proposal.get_user_vote_on_conclusion_proposal(
-                    cp.id, user_id
-                )
-                has_voted = user_vote is not None
+                has_voted = cp.id in user_votes_on_conclusions
                 
                 conclusion_proposals.append(
                     ConclusionProposalInfo(
@@ -190,23 +222,10 @@ class EventDetailService(EventBaseService):
                     )
                 )
             
-            # 제안이 적용된 경우 applied_at 정보 찾기
-            modified_at = None
-            deleted_at = None
-            if criterion.is_modified or criterion.is_deleted:
-                # 해당 criterion에 대한 ACCEPTED 제안 중 applied_at이 있는 것 찾기
-                criteria_proposals_all = self.repos.proposal.get_criteria_proposals_by_event_id(
-                    event_id, user_id
-                )
-                for prop in criteria_proposals_all:
-                    if (prop.criteria_id == criterion.id and
-                        prop.proposal_status == ProposalStatusType.ACCEPTED and
-                        prop.applied_at is not None):
-                        if criterion.is_deleted:
-                            deleted_at = prop.applied_at
-                        elif criterion.is_modified:
-                            modified_at = prop.applied_at
-                        break
+            # 제안이 적용된 경우 applied_at 정보 찾기 (딕셔너리에서 조회)
+            applied_info = criteria_applied_at_map.get(criterion.id, {})
+            modified_at = applied_info.get('modified_at')
+            deleted_at = applied_info.get('deleted_at')
             
             criteria_with_proposals.append(
                 CriterionWithProposals(

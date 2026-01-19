@@ -1,9 +1,9 @@
 import random
 import string
-from uuid import UUID
 from typing import List
+from uuid import UUID
 
-from app.models.event import Event, Option, EventStatusType
+from app.models.event import Event, EventStatusType, Option
 from app.models.content import Assumption, Criterion
 from app.services.event.base import EventBaseService
 from app.schemas.event import (

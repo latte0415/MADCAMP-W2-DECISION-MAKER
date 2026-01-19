@@ -1,7 +1,8 @@
 from typing import List
 from uuid import UUID
-from sqlalchemy.orm import Session, joinedload
+
 from sqlalchemy import select
+from sqlalchemy.orm import Session, joinedload
 
 from app.models.proposal import (
     AssumptionProposal,
@@ -125,6 +126,54 @@ class ProposalRepository:
         )
         result = self.db.execute(stmt)
         return result.scalar_one_or_none()
+
+    def get_user_votes_on_assumption_proposals(
+        self,
+        proposal_ids: List[UUID],
+        user_id: UUID
+    ) -> dict[UUID, AssumptionProposalVote]:
+        """여러 전제 제안에 대한 사용자 투표를 한 번에 조회"""
+        if not proposal_ids:
+            return {}
+        stmt = select(AssumptionProposalVote).where(
+            AssumptionProposalVote.assumption_proposal_id.in_(proposal_ids),
+            AssumptionProposalVote.created_by == user_id
+        )
+        result = self.db.execute(stmt)
+        votes = result.scalars().all()
+        return {vote.assumption_proposal_id: vote for vote in votes}
+
+    def get_user_votes_on_criteria_proposals(
+        self,
+        proposal_ids: List[UUID],
+        user_id: UUID
+    ) -> dict[UUID, CriterionProposalVote]:
+        """여러 기준 제안에 대한 사용자 투표를 한 번에 조회"""
+        if not proposal_ids:
+            return {}
+        stmt = select(CriterionProposalVote).where(
+            CriterionProposalVote.proposal_id.in_(proposal_ids),
+            CriterionProposalVote.created_by == user_id
+        )
+        result = self.db.execute(stmt)
+        votes = result.scalars().all()
+        return {vote.proposal_id: vote for vote in votes}
+
+    def get_user_votes_on_conclusion_proposals(
+        self,
+        proposal_ids: List[UUID],
+        user_id: UUID
+    ) -> dict[UUID, ConclusionProposalVote]:
+        """여러 결론 제안에 대한 사용자 투표를 한 번에 조회"""
+        if not proposal_ids:
+            return {}
+        stmt = select(ConclusionProposalVote).where(
+            ConclusionProposalVote.proposal_id.in_(proposal_ids),
+            ConclusionProposalVote.created_by == user_id
+        )
+        result = self.db.execute(stmt)
+        votes = result.scalars().all()
+        return {vote.proposal_id: vote for vote in votes}
 
     # ============================================================================
     # Assumption Proposal CRUD

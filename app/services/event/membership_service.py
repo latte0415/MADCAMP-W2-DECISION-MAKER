@@ -1,6 +1,7 @@
-from typing import List
 from datetime import datetime, timezone
+from typing import List
 from uuid import UUID
+
 from sqlalchemy.orm import Session
 
 from app.models.event import EventMembership, MembershipStatusType
@@ -8,7 +9,15 @@ from app.repositories.membership_repository import MembershipRepository
 from app.repositories.event_repository import EventRepository
 from app.dependencies.aggregate_repositories import EventAggregateRepositories
 from app.services.event.base import EventBaseService
-from app.exceptions import NotFoundError, ConflictError
+from app.exceptions import NotFoundError, ConflictError, ValidationError
+
+
+# 멤버십 상태별 에러 메시지 상수
+MEMBERSHIP_STATUS_ERROR_MESSAGES = {
+    MembershipStatusType.ACCEPTED: "이미 가입되었습니다.",
+    MembershipStatusType.PENDING: "이미 신청되었습니다. (승인 대기 중)",
+    MembershipStatusType.REJECTED: "이미 가입 신청이 거절되었습니다.",
+}
 
 
 class MembershipService(EventBaseService):
@@ -62,15 +71,11 @@ class MembershipService(EventBaseService):
         existing_membership = self.membership_repo.get_by_user_and_event(user_id, event.id)
         
         if existing_membership:
-            # 상태별 에러 메시지
-            if existing_membership.membership_status == MembershipStatusType.ACCEPTED:
-                detail = "이미 가입되었습니다."
-            elif existing_membership.membership_status == MembershipStatusType.PENDING:
-                detail = "이미 신청되었습니다. (승인 대기 중)"
-            elif existing_membership.membership_status == MembershipStatusType.REJECTED:
-                detail = "이미 가입 신청이 거절되었습니다."
-            else:
-                detail = "이미 신청되었습니다."
+            # 상태별 에러 메시지 (상수에서 조회)
+            detail = MEMBERSHIP_STATUS_ERROR_MESSAGES.get(
+                existing_membership.membership_status,
+                "이미 신청되었습니다."
+            )
             
             raise ConflictError(
                 message="Already joined",
@@ -96,30 +101,15 @@ class MembershipService(EventBaseService):
         user_id: UUID
     ) -> EventMembership:
         """멤버십 승인"""
-        from app.exceptions import ValidationError, ConflictError
         
         # 관리자 권한 확인 (base 메서드 사용)
         self.verify_admin(event_id, user_id)
         
-        # 멤버십 조회
-        membership = self.membership_repo.get_by_id(membership_id)
-        if not membership:
-            raise NotFoundError(
-                message="Membership not found",
-                detail=f"Membership with id {membership_id} not found"
-            )
-        
-        if membership.event_id != event_id:
-            raise NotFoundError(
-                message="Membership not found",
-                detail=f"Membership with id {membership_id} does not belong to this event"
-            )
-        
-        if membership.membership_status != MembershipStatusType.PENDING:
-            raise ValidationError(
-                message="Invalid membership status",
-                detail=f"Membership status must be PENDING to approve, current status: {membership.membership_status.value}"
-            )
+        # 멤버십 조회 및 검증
+        membership = self._validate_membership_exists_and_belongs_to_event(
+            membership_id, event_id
+        )
+        self._validate_membership_pending(membership, "approve")
         
         # max_membership 확인
         current_count = self.event_repo.count_accepted_members(event_id)
@@ -146,30 +136,15 @@ class MembershipService(EventBaseService):
         user_id: UUID
     ) -> EventMembership:
         """멤버십 거부"""
-        from app.exceptions import ValidationError
         
         # 관리자 권한 확인 (base 메서드 사용)
         self.verify_admin(event_id, user_id)
         
-        # 멤버십 조회
-        membership = self.membership_repo.get_by_id(membership_id)
-        if not membership:
-            raise NotFoundError(
-                message="Membership not found",
-                detail=f"Membership with id {membership_id} not found"
-            )
-        
-        if membership.event_id != event_id:
-            raise NotFoundError(
-                message="Membership not found",
-                detail=f"Membership with id {membership_id} does not belong to this event"
-            )
-        
-        if membership.membership_status != MembershipStatusType.PENDING:
-            raise ValidationError(
-                message="Invalid membership status",
-                detail=f"Membership status must be PENDING to reject, current status: {membership.membership_status.value}"
-            )
+        # 멤버십 조회 및 검증
+        membership = self._validate_membership_exists_and_belongs_to_event(
+            membership_id, event_id
+        )
+        self._validate_membership_pending(membership, "reject")
         
         # 거부 처리
         membership.membership_status = MembershipStatusType.REJECTED
@@ -184,7 +159,6 @@ class MembershipService(EventBaseService):
         user_id: UUID
     ) -> dict:
         """멤버십 일괄 승인"""
-        from app.exceptions import ConflictError
         
         # 관리자 권한 확인 (base 메서드 사용)
         self.verify_admin(event_id, user_id)
@@ -256,6 +230,33 @@ class MembershipService(EventBaseService):
         return {
             "rejected_count": rejected_count,
         }
+
+    def _validate_membership_exists_and_belongs_to_event(
+        self, membership_id: UUID, event_id: UUID
+    ) -> EventMembership:
+        """멤버십 존재 및 event_id 검증"""
+        membership = self.membership_repo.get_by_id(membership_id)
+        if not membership:
+            raise NotFoundError(
+                message="Membership not found",
+                detail=f"Membership with id {membership_id} not found"
+            )
+        if membership.event_id != event_id:
+            raise NotFoundError(
+                message="Membership not found",
+                detail=f"Membership with id {membership_id} does not belong to this event"
+            )
+        return membership
+
+    def _validate_membership_pending(
+        self, membership: EventMembership, operation: str
+    ) -> None:
+        """멤버십 PENDING 상태 검증"""
+        if membership.membership_status != MembershipStatusType.PENDING:
+            raise ValidationError(
+                message="Invalid membership status",
+                detail=f"Membership status must be PENDING to {operation}, current status: {membership.membership_status.value}"
+            )
 
     def get_event_memberships(
         self,

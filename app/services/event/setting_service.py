@@ -1,8 +1,7 @@
-from uuid import UUID
 from typing import List, TYPE_CHECKING
-from typing import List
+from uuid import UUID
 
-from app.models.event import Event, EventStatusType
+from app.models.event import Event, EventStatusType, Option
 from app.models.content import Assumption, Criterion
 from app.services.event.base import EventBaseService
 from app.schemas.event import (
@@ -77,47 +76,27 @@ class EventSettingService(EventBaseService):
         
         # 기본 정보 수정 (NOT_STARTED일 때만)
         if request.decision_subject is not None:
-            if event.event_status != EventStatusType.NOT_STARTED:
-                raise ValidationError(
-                    message="Cannot modify decision subject",
-                    detail="Decision subject can only be modified when event status is NOT_STARTED"
-                )
+            self._validate_event_not_started(event, "modify decision subject")
             event.decision_subject = request.decision_subject
         
         # 선택지 업데이트 (NOT_STARTED일 때만)
         if request.options is not None:
-            if event.event_status != EventStatusType.NOT_STARTED:
-                raise ValidationError(
-                    message="Cannot modify options",
-                    detail="Options can only be modified when event status is NOT_STARTED"
-                )
+            self._validate_event_not_started(event, "modify options")
             self._update_options(event_id, request.options, user_id)
         
         # 전제 업데이트 (NOT_STARTED일 때만)
         if request.assumptions is not None:
-            if event.event_status != EventStatusType.NOT_STARTED:
-                raise ValidationError(
-                    message="Cannot modify assumptions",
-                    detail="Assumptions can only be modified when event status is NOT_STARTED"
-                )
+            self._validate_event_not_started(event, "modify assumptions")
             self._update_assumptions(event_id, request.assumptions, user_id)
         
         # 기준 업데이트 (NOT_STARTED일 때만)
         if request.criteria is not None:
-            if event.event_status != EventStatusType.NOT_STARTED:
-                raise ValidationError(
-                    message="Cannot modify criteria",
-                    detail="Criteria can only be modified when event status is NOT_STARTED"
-                )
+            self._validate_event_not_started(event, "modify criteria")
             self._update_criteria(event_id, request.criteria, user_id)
         
         # 최대 인원 수정 (FINISHED가 아닐 때)
         if request.max_membership is not None:
-            if event.event_status == EventStatusType.FINISHED:
-                raise ValidationError(
-                    message="Cannot modify max membership",
-                    detail="Max membership cannot be modified when event status is FINISHED"
-                )
+            self._validate_event_not_finished(event, "modify max membership")
             # 현재 ACCEPTED 멤버 수 확인 - base 메서드 사용
             current_count = self.count_accepted_members(event_id)
             if request.max_membership < current_count:
@@ -129,52 +108,28 @@ class EventSettingService(EventBaseService):
         
         # 투표 허용 정책 수정 (FINISHED가 아닐 때)
         if request.assumption_is_auto_approved_by_votes is not None:
-            if event.event_status == EventStatusType.FINISHED:
-                raise ValidationError(
-                    message="Cannot modify assumption auto approval policy",
-                    detail="Voting policies cannot be modified when event status is FINISHED"
-                )
+            self._validate_event_not_finished(event, "modify assumption auto approval policy")
             event.assumption_is_auto_approved_by_votes = request.assumption_is_auto_approved_by_votes
         
         if request.assumption_min_votes_required is not None:
-            if event.event_status == EventStatusType.FINISHED:
-                raise ValidationError(
-                    message="Cannot modify assumption min votes required",
-                    detail="Voting policies cannot be modified when event status is FINISHED"
-                )
+            self._validate_event_not_finished(event, "modify assumption min votes required")
             event.assumption_min_votes_required = request.assumption_min_votes_required
         
         if request.criteria_is_auto_approved_by_votes is not None:
-            if event.event_status == EventStatusType.FINISHED:
-                raise ValidationError(
-                    message="Cannot modify criteria auto approval policy",
-                    detail="Voting policies cannot be modified when event status is FINISHED"
-                )
+            self._validate_event_not_finished(event, "modify criteria auto approval policy")
             event.criteria_is_auto_approved_by_votes = request.criteria_is_auto_approved_by_votes
         
         if request.criteria_min_votes_required is not None:
-            if event.event_status == EventStatusType.FINISHED:
-                raise ValidationError(
-                    message="Cannot modify criteria min votes required",
-                    detail="Voting policies cannot be modified when event status is FINISHED"
-                )
+            self._validate_event_not_finished(event, "modify criteria min votes required")
             event.criteria_min_votes_required = request.criteria_min_votes_required
         
         if request.conclusion_approval_threshold_percent is not None:
-            if event.event_status == EventStatusType.FINISHED:
-                raise ValidationError(
-                    message="Cannot modify conclusion approval threshold",
-                    detail="Voting policies cannot be modified when event status is FINISHED"
-                )
+            self._validate_event_not_finished(event, "modify conclusion approval threshold")
             event.conclusion_approval_threshold_percent = request.conclusion_approval_threshold_percent
         
         # 입장 정책 수정 (FINISHED가 아닐 때)
         if request.membership_is_auto_approved is not None:
-            if event.event_status == EventStatusType.FINISHED:
-                raise ValidationError(
-                    message="Cannot modify membership auto approval policy",
-                    detail="Entrance policies cannot be modified when event status is FINISHED"
-                )
+            self._validate_event_not_finished(event, "modify membership auto approval policy")
             event.membership_is_auto_approved = request.membership_is_auto_approved
         
         # 이벤트 업데이트
@@ -189,8 +144,6 @@ class EventSettingService(EventBaseService):
         user_id: UUID
     ) -> None:
         """선택지 업데이트 처리"""
-        from app.models.event import Option
-        
         for item in option_items:
             if item.id is None:
                 # 추가
@@ -203,21 +156,11 @@ class EventSettingService(EventBaseService):
                     self.repos.option.create_options([option])
             elif item.content is None:
                 # 삭제 (content가 None)
-                option = self.repos.option.get_by_id(item.id)
-                if not option or option.event_id != event_id:
-                    raise NotFoundError(
-                        message="Option not found",
-                        detail=f"Option with id {item.id} not found for this event"
-                    )
+                option = self._validate_option_exists(item.id, event_id)
                 self.repos.option.delete_option(option)
             else:
                 # 수정
-                option = self.repos.option.get_by_id(item.id)
-                if not option or option.event_id != event_id:
-                    raise NotFoundError(
-                        message="Option not found",
-                        detail=f"Option with id {item.id} not found for this event"
-                    )
+                option = self._validate_option_exists(item.id, event_id)
                 option.content = item.content
                 self.repos.option.update_option(option)
 
@@ -240,21 +183,11 @@ class EventSettingService(EventBaseService):
                     self.repos.assumption.create_assumptions([assumption])
             elif item.content is None:
                 # 삭제 (content가 None)
-                assumption = self.repos.assumption.get_by_id(item.id)
-                if not assumption or assumption.event_id != event_id:
-                    raise NotFoundError(
-                        message="Assumption not found",
-                        detail=f"Assumption with id {item.id} not found for this event"
-                    )
+                assumption = self._validate_assumption_exists(item.id, event_id)
                 self.repos.assumption.delete_assumption(assumption)
             else:
                 # 수정
-                assumption = self.repos.assumption.get_by_id(item.id)
-                if not assumption or assumption.event_id != event_id:
-                    raise NotFoundError(
-                        message="Assumption not found",
-                        detail=f"Assumption with id {item.id} not found for this event"
-                    )
+                assumption = self._validate_assumption_exists(item.id, event_id)
                 assumption.content = item.content
                 self.repos.assumption.update_assumption(assumption, user_id)
 
@@ -277,20 +210,40 @@ class EventSettingService(EventBaseService):
                     self.repos.criterion.create_criteria([criterion])
             elif item.content is None:
                 # 삭제 (content가 None)
-                criterion = self.repos.criterion.get_by_id(item.id)
-                if not criterion or criterion.event_id != event_id:
-                    raise NotFoundError(
-                        message="Criterion not found",
-                        detail=f"Criterion with id {item.id} not found for this event"
-                    )
+                criterion = self._validate_criterion_exists(item.id, event_id)
                 self.repos.criterion.delete_criterion(criterion)
             else:
                 # 수정
-                criterion = self.repos.criterion.get_by_id(item.id)
-                if not criterion or criterion.event_id != event_id:
-                    raise NotFoundError(
-                        message="Criterion not found",
-                        detail=f"Criterion with id {item.id} not found for this event"
-                    )
+                criterion = self._validate_criterion_exists(item.id, event_id)
                 criterion.content = item.content
                 self.repos.criterion.update_criterion(criterion, user_id)
+
+    def _validate_option_exists(self, option_id: UUID, event_id: UUID):
+        """Option 존재 및 event_id 검증"""
+        option = self.repos.option.get_by_id(option_id)
+        if not option or option.event_id != event_id:
+            raise NotFoundError(
+                message="Option not found",
+                detail=f"Option with id {option_id} not found for this event"
+            )
+        return option
+
+    def _validate_assumption_exists(self, assumption_id: UUID, event_id: UUID):
+        """Assumption 존재 및 event_id 검증"""
+        assumption = self.repos.assumption.get_by_id(assumption_id)
+        if not assumption or assumption.event_id != event_id:
+            raise NotFoundError(
+                message="Assumption not found",
+                detail=f"Assumption with id {assumption_id} not found for this event"
+            )
+        return assumption
+
+    def _validate_criterion_exists(self, criterion_id: UUID, event_id: UUID):
+        """Criterion 존재 및 event_id 검증"""
+        criterion = self.repos.criterion.get_by_id(criterion_id)
+        if not criterion or criterion.event_id != event_id:
+            raise NotFoundError(
+                message="Criterion not found",
+                detail=f"Criterion with id {criterion_id} not found for this event"
+            )
+        return criterion
