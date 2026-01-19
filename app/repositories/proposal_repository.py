@@ -1,7 +1,8 @@
+from datetime import datetime
 from typing import List
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.orm import Session, joinedload
 
 from app.models.proposal import (
@@ -108,7 +109,7 @@ class ProposalRepository:
     ) -> CriterionProposalVote | None:
         """사용자가 특정 기준 제안에 투표했는지 확인"""
         stmt = select(CriterionProposalVote).where(
-            CriterionProposalVote.proposal_id == proposal_id,
+            CriterionProposalVote.criterion_proposal_id == proposal_id,
             CriterionProposalVote.created_by == user_id
         )
         result = self.db.execute(stmt)
@@ -152,12 +153,12 @@ class ProposalRepository:
         if not proposal_ids:
             return {}
         stmt = select(CriterionProposalVote).where(
-            CriterionProposalVote.proposal_id.in_(proposal_ids),
+            CriterionProposalVote.criterion_proposal_id.in_(proposal_ids),
             CriterionProposalVote.created_by == user_id
         )
         result = self.db.execute(stmt)
         votes = result.scalars().all()
-        return {vote.proposal_id: vote for vote in votes}
+        return {vote.criterion_proposal_id: vote for vote in votes}
 
     def get_user_votes_on_conclusion_proposals(
         self,
@@ -233,6 +234,31 @@ class ProposalRepository:
         self.db.flush()
         return proposal
 
+    def approve_assumption_proposal_if_pending(
+        self, proposal_id: UUID, accepted_at: datetime
+    ) -> AssumptionProposal | None:
+        """
+        PENDING 상태인 전제 제안을 조건부로 승인
+        - WHERE id = :id AND status = 'PENDING' 조건으로 업데이트
+        - 이미 승인된 경우 None 반환 (중복 승인 방지)
+        - 성공 시 업데이트된 proposal 반환
+        """
+        stmt = (
+            update(AssumptionProposal)
+            .where(
+                AssumptionProposal.id == proposal_id,
+                AssumptionProposal.proposal_status == ProposalStatusType.PENDING
+            )
+            .values(
+                proposal_status=ProposalStatusType.ACCEPTED,
+                accepted_at=accepted_at
+            )
+            .returning(AssumptionProposal)
+        )
+        result = self.db.execute(stmt)
+        self.db.flush()
+        return result.scalar_one_or_none()
+
     # ============================================================================
     # Assumption Proposal Vote CRUD
     # ============================================================================
@@ -260,6 +286,120 @@ class ProposalRepository:
         stmt = (
             select(sql_func.count(AssumptionProposalVote.id))
             .where(AssumptionProposalVote.assumption_proposal_id == proposal_id)
+        )
+        result = self.db.execute(stmt)
+        return result.scalar() or 0
+
+    # ============================================================================
+    # Criteria Proposal CRUD
+    # ============================================================================
+
+    def create_criteria_proposal(
+        self, proposal: CriteriaProposal
+    ) -> CriteriaProposal:
+        """기준 제안 생성"""
+        self.db.add(proposal)
+        self.db.flush()
+        return proposal
+
+    def get_criteria_proposal_by_id(
+        self, proposal_id: UUID
+    ) -> CriteriaProposal | None:
+        """기준 제안 ID로 조회"""
+        stmt = (
+            select(CriteriaProposal)
+            .where(CriteriaProposal.id == proposal_id)
+            .options(
+                joinedload(CriteriaProposal.votes),
+                joinedload(CriteriaProposal.creator),
+                joinedload(CriteriaProposal.criterion)
+            )
+        )
+        result = self.db.execute(stmt)
+        return result.unique().scalar_one_or_none()
+
+    def get_pending_criteria_proposal_by_user(
+        self,
+        event_id: UUID,
+        criteria_id: UUID | None,
+        user_id: UUID
+    ) -> CriteriaProposal | None:
+        """
+        사용자의 PENDING 상태 기준 제안 조회 (중복 체크용)
+        - criteria_id가 None이면 CREATION 제안
+        - criteria_id가 있으면 MODIFICATION/DELETION 제안
+        """
+        stmt = (
+            select(CriteriaProposal)
+            .where(
+                CriteriaProposal.event_id == event_id,
+                CriteriaProposal.criteria_id == criteria_id,
+                CriteriaProposal.created_by == user_id,
+                CriteriaProposal.proposal_status == ProposalStatusType.PENDING
+            )
+        )
+        result = self.db.execute(stmt)
+        return result.scalar_one_or_none()
+
+    def update_criteria_proposal(
+        self, proposal: CriteriaProposal
+    ) -> CriteriaProposal:
+        """기준 제안 업데이트"""
+        self.db.flush()
+        return proposal
+
+    def approve_criteria_proposal_if_pending(
+        self, proposal_id: UUID, accepted_at: datetime
+    ) -> CriteriaProposal | None:
+        """
+        PENDING 상태인 기준 제안을 조건부로 승인
+        - WHERE id = :id AND status = 'PENDING' 조건으로 업데이트
+        - 이미 승인된 경우 None 반환 (중복 승인 방지)
+        - 성공 시 업데이트된 proposal 반환
+        """
+        stmt = (
+            update(CriteriaProposal)
+            .where(
+                CriteriaProposal.id == proposal_id,
+                CriteriaProposal.proposal_status == ProposalStatusType.PENDING
+            )
+            .values(
+                proposal_status=ProposalStatusType.ACCEPTED,
+                accepted_at=accepted_at
+            )
+            .returning(CriteriaProposal)
+        )
+        result = self.db.execute(stmt)
+        self.db.flush()
+        return result.scalar_one_or_none()
+
+    # ============================================================================
+    # Criteria Proposal Vote CRUD
+    # ============================================================================
+
+    def create_criteria_proposal_vote(
+        self, vote: CriterionProposalVote
+    ) -> CriterionProposalVote:
+        """기준 제안 투표 생성"""
+        self.db.add(vote)
+        self.db.flush()
+        return vote
+
+    def delete_criteria_proposal_vote(
+        self, vote: CriterionProposalVote
+    ) -> None:
+        """기준 제안 투표 삭제"""
+        self.db.delete(vote)
+        self.db.flush()
+
+    def count_criteria_proposal_votes(
+        self, proposal_id: UUID
+    ) -> int:
+        """기준 제안 투표 수 조회"""
+        from sqlalchemy import func as sql_func
+        stmt = (
+            select(sql_func.count(CriterionProposalVote.id))
+            .where(CriterionProposalVote.criterion_proposal_id == proposal_id)
         )
         result = self.db.execute(stmt)
         return result.scalar() or 0

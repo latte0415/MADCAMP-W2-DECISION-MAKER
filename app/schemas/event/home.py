@@ -9,7 +9,8 @@ class EventListItemResponse(BaseModel):
     decision_subject: str
     event_status: EventStatusType
     admin_id: UUID
-    admin_name: str | None  # User.email or None
+    admin_name: str | None  # User.name if exists, else User.email
+    admin_email: str | None  # User.email
     entrance_code: str
     participant_count: int
     is_admin: bool

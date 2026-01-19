@@ -54,6 +54,7 @@ class EventOverviewService(EventBaseService):
             ],
             admin=AdminInfo(
                 id=event.admin.id,
+                name=event.admin.name,
                 email=event.admin.email,
             ),
             participant_count=participant_count,

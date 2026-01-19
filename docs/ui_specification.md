@@ -208,7 +208,7 @@
     - 특정 proposal의 vote count가 임계값을 넘으면, 승인 상태로 전환(auto approved가 켜져있는 경우 한정. 아닌 경우는 그냥 카운트만 되서 조회만 됨)
 
 ### API 설계
-
+#### Done
 - event에 대한 주제, 선택지, 전제, 기준, 각각에 대한 제안 조회하기
   - 제안: `GET /events/{event_id}`
 - 전제에 대한 제안 생성하기
@@ -216,11 +216,15 @@
 - 전제에 대한 제안 투표 생성하기/삭제하기
   - 제안: `POST /events/{event_id}/assumption-proposals/{proposal_id}/votes` (생성)
   - 제안: `DELETE /events/{event_id}/assumption-proposals/{proposal_id}/votes` (삭제)
+
+#### To Do
 - 기준에 대한 제안 생성하기
   - 제안: `POST /events/{event_id}/criteria-proposals`
 - 기준에 대한 제안 투표 생성하기/삭제하기
   - 제안: `POST /events/{event_id}/criteria-proposals/{proposal_id}/votes` (생성)
   - 제안: `DELETE /events/{event_id}/criteria-proposals/{proposal_id}/votes` (삭제)
+
+#### To Do (Not Now)
 - 기준에 대한 결론에 대한 제안 생성하기
   - 제안: `POST /events/{event_id}/criteria/{criterion_id}/conclusion-proposals`
 - 기준에 대한 결론에 대한 투표 생성하기/삭제하기

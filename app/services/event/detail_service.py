@@ -73,6 +73,7 @@ class EventDetailService(EventBaseService):
                 reason=proposal.reason,
                 created_at=proposal.created_at,
                 created_by=proposal.created_by,
+                creator_name=proposal.creator.name if proposal.creator else None,
                 creator_email=proposal.creator.email if proposal.creator else None,
                 vote_info=ProposalVoteInfo(
                     vote_count=vote_count,
@@ -112,6 +113,7 @@ class EventDetailService(EventBaseService):
                 reason=proposal.reason,
                 created_at=proposal.created_at,
                 created_by=proposal.created_by,
+                creator_name=proposal.creator.name if proposal.creator else None,
                 creator_email=proposal.creator.email if proposal.creator else None,
                 vote_info=ProposalVoteInfo(
                     vote_count=vote_count,
@@ -214,6 +216,7 @@ class EventDetailService(EventBaseService):
                         proposal_content=cp.proposal_content,
                         created_at=cp.created_at,
                         created_by=cp.created_by,
+                        creator_name=cp.creator.name if cp.creator else None,
                         creator_email=cp.creator.email if cp.creator else None,
                         vote_info=ProposalVoteInfo(
                             vote_count=vote_count,

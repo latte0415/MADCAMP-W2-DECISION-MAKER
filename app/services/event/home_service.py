@@ -36,8 +36,12 @@ class EventHomeService(EventBaseService):
             # 관리자 여부 확인
             is_admin = event.admin_id == user_id
             
-            # 관리자 이름 (email 사용, User 모델에 name이 없으므로)
-            admin_name = event.admin.email if event.admin else None
+            # 관리자 정보 (이름이 있으면 이름, 없으면 이메일)
+            admin_name = None
+            admin_email = None
+            if event.admin:
+                admin_name = event.admin.name if event.admin.name else event.admin.email
+                admin_email = event.admin.email
             
             result.append(
                 EventListItemResponse(
@@ -46,6 +50,7 @@ class EventHomeService(EventBaseService):
                     event_status=event.event_status,
                     admin_id=event.admin_id,
                     admin_name=admin_name,
+                    admin_email=admin_email,
                     entrance_code=event.entrance_code,
                     participant_count=participant_count,
                     is_admin=is_admin,

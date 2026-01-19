@@ -14,6 +14,7 @@ class OptionInfo(BaseModel):
 class AdminInfo(BaseModel):
     """관리자 정보 (공통)"""
     id: UUID
+    name: str | None
     email: str
 
     class Config:

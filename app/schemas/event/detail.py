@@ -34,6 +34,7 @@ class AssumptionProposalInfo(BaseModel):
     reason: str | None
     created_at: datetime
     created_by: UUID
+    creator_name: str | None
     creator_email: str | None
     vote_info: ProposalVoteInfo
 
@@ -51,6 +52,7 @@ class CriteriaProposalInfo(BaseModel):
     reason: str | None
     created_at: datetime
     created_by: UUID
+    creator_name: str | None
     creator_email: str | None
     vote_info: ProposalVoteInfo
 
@@ -66,6 +68,7 @@ class ConclusionProposalInfo(BaseModel):
     proposal_content: str
     created_at: datetime
     created_by: UUID
+    creator_name: str | None
     creator_email: str | None
     vote_info: ProposalVoteInfo
 
