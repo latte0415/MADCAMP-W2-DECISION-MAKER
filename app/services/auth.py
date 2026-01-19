@@ -192,26 +192,18 @@ class AuthService:
         - Issue new tokens and store refresh token hash
         """
 
-
         with self.db.begin():
-            identity = self.identity_repo.get_local_by_email_with_user(email)
-            if not identity or not identity.user:
-                google_identity = self.identity_repo.get_by_provider_and_email_with_user(
-                provider="google",
-                email=email,
-                )
-
-                if google_identity and google_identity.user and google_identity.user.is_active:
-                    raise LocalLoginNotAvailable(provider="google")
-
+            user = self.user_repo.get_by_email(email)
+            if not user:
                 raise InvalidCredentials()
-
-            user = identity.user
 
             if not user.is_active:
                 raise InactiveUser()
+            
+            if not user.password_hash: # this can only happen if the user logged in with google and did not set the password via reset.
+                raise LocalLoginNotAvailable(provider="google")
 
-            if not user.password_hash or not verify_password(password, user.password_hash):
+            if not verify_password(password, user.password_hash):
                 raise InvalidCredentials()
             
             access, refresh, refresh_expires_at = self._issue_tokens_for_user(
