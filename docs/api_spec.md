@@ -53,11 +53,42 @@
 | POST | `/v1/events/entry` | 이벤트 입장 (코드로 참가) | 🔐 |
 | GET | `/v1/events/{event_id}/overview` | 이벤트 오버뷰 정보 조회 | 🔐 |
 
+#### 이벤트 상세 관련
+| Method | Endpoint | 설명 | 인증 |
+|--------|----------|------|------|
+| GET | `/v1/events/{event_id}` | 이벤트 상세 조회 | 🔐 |
+| POST | `/v1/events/{event_id}/assumption-proposals` | 전제 제안 생성 | 🔐 |
+| POST | `/v1/events/{event_id}/assumption-proposals/{proposal_id}/votes` | 전제 제안 투표 생성 | 🔐 |
+| DELETE | `/v1/events/{event_id}/assumption-proposals/{proposal_id}/votes` | 전제 제안 투표 삭제 | 🔐 |
+| POST | `/v1/events/{event_id}/criteria-proposals` | 기준 제안 생성 | 🔐 |
+| POST | `/v1/events/{event_id}/criteria-proposals/{proposal_id}/votes` | 기준 제안 투표 생성 | 🔐 |
+| DELETE | `/v1/events/{event_id}/criteria-proposals/{proposal_id}/votes` | 기준 제안 투표 삭제 | 🔐 |
+| POST | `/v1/events/{event_id}/criteria/{criterion_id}/conclusion-proposals` | 결론 제안 생성 | 🔐 |
+| POST | `/v1/events/{event_id}/conclusion-proposals/{proposal_id}/votes` | 결론 제안 투표 생성 | 🔐 |
+| DELETE | `/v1/events/{event_id}/conclusion-proposals/{proposal_id}/votes` | 결론 제안 투표 삭제 | 🔐 |
+
+#### 제안 상태 변경 (관리자용)
+| Method | Endpoint | 설명 | 인증 |
+|--------|----------|------|------|
+| PATCH | `/v1/events/{event_id}/assumption-proposals/{proposal_id}/status` | 전제 제안 상태 변경 | 🔐 (관리자) |
+| PATCH | `/v1/events/{event_id}/criteria-proposals/{proposal_id}/status` | 기준 제안 상태 변경 | 🔐 (관리자) |
+| PATCH | `/v1/events/{event_id}/conclusion-proposals/{proposal_id}/status` | 결론 제안 상태 변경 | 🔐 (관리자) |
+
+#### 코멘트 관련
+| Method | Endpoint | 설명 | 인증 |
+|--------|----------|------|------|
+| GET | `/v1/events/{event_id}/criteria/{criterion_id}/comments/count` | 코멘트 수 조회 | 🔐 |
+| GET | `/v1/events/{event_id}/criteria/{criterion_id}/comments` | 코멘트 목록 조회 | 🔐 |
+| POST | `/v1/events/{event_id}/criteria/{criterion_id}/comments` | 코멘트 생성 | 🔐 |
+| PATCH | `/v1/events/{event_id}/comments/{comment_id}` | 코멘트 수정 | 🔐 |
+| DELETE | `/v1/events/{event_id}/comments/{comment_id}` | 코멘트 삭제 | 🔐 |
+
 #### 이벤트 설정 관련 (관리자용)
 | Method | Endpoint | 설명 | 인증 |
 |--------|----------|------|------|
 | GET | `/v1/events/{event_id}/setting` | 이벤트 설정 조회 | 🔐 (관리자) |
 | PATCH | `/v1/events/{event_id}` | 이벤트 설정 수정 | 🔐 (관리자) |
+| PATCH | `/v1/events/{event_id}/status` | 이벤트 상태 변경 | 🔐 (관리자) |
 
 #### 멤버십 관리 (관리자용)
 | Method | Endpoint | 설명 | 인증 |
@@ -91,16 +122,22 @@
 
 ### 통계
 
-- **총 구현된 API**: 26개
+- **총 구현된 API**: 45개
   - 인증 API: 9개
-  - 이벤트 API: 15개
+  - 이벤트 API: 34개
+    - 홈/참가: 1개
+    - 생성: 3개
+    - 참가/조회: 2개
+    - 상세/제안: 10개
+    - 제안 상태 변경: 3개
+    - 코멘트: 5개
+    - 설정: 3개
+    - 멤버십: 5개
+    - 이벤트 상태 변경: 1개
   - 개발용 API: 여러 개 (별도 문서 참조)
   - 기타: 2개
 
-- **미구현 API**: 13개 (TODO 섹션 참조)
-  - 이벤트 상세: 1개
-  - 제안 및 투표: 6개
-  - 코멘트: 4개
+- **미구현 API**: 2개 (TODO 섹션 참조)
   - 투표: 2개
 
 ---
@@ -803,6 +840,609 @@ Authorization: Bearer <access_token>
 
 ---
 
+### GET /v1/events/{event_id}
+
+이벤트 상세 조회
+
+**인증:** Bearer Token 필수 (ACCEPTED 멤버십 필요)
+
+**Path Parameters:**
+- `event_id` (UUID): 이벤트 ID
+
+**Response:** `200 OK`
+```json
+{
+  "event": {
+    "id": "uuid",
+    "decision_subject": "의사결정 주제",
+    "event_status": "IN_PROGRESS"
+  },
+  "options": [...],
+  "assumptions": [
+    {
+      "id": "uuid",
+      "content": "전제 1",
+      "proposals": [...]
+    }
+  ],
+  "criteria": [
+    {
+      "id": "uuid",
+      "content": "기준 1",
+      "proposals": [...],
+      "conclusion_proposals": [...]
+    }
+  ]
+}
+```
+
+**참고:**
+- 각 제안에 대한 투표 정보 포함
+- ACCEPTED 멤버십만 조회 가능
+
+---
+
+### POST /v1/events/{event_id}/assumption-proposals
+
+전제 제안 생성
+
+**인증:** Bearer Token 필수 (ACCEPTED 멤버십 필요)
+
+**Path Parameters:**
+- `event_id` (UUID): 이벤트 ID
+
+**Request Body:**
+```json
+{
+  "proposal_category": "CREATION",
+  "assumption_id": null,
+  "proposal_content": "새 전제 내용",
+  "reason": "이유 (선택)"
+}
+```
+
+**Response:** `201 Created`
+```json
+{
+  "id": "uuid",
+  "event_id": "uuid",
+  "assumption_id": null,
+  "proposal_status": "PENDING",
+  "proposal_category": "CREATION",
+  "proposal_content": "새 전제 내용",
+  "reason": "이유",
+  "created_at": "2024-01-01T00:00:00Z",
+  "created_by": "uuid",
+  "vote_count": 0,
+  "has_voted": false
+}
+```
+
+**에러:**
+- `400 Bad Request`: 이벤트가 IN_PROGRESS 상태가 아님
+- `403 Forbidden`: ACCEPTED 멤버십이 아님
+- `409 Conflict`: 중복 제안 존재
+
+---
+
+### POST /v1/events/{event_id}/assumption-proposals/{proposal_id}/votes
+
+전제 제안 투표 생성
+
+**인증:** Bearer Token 필수
+
+**Path Parameters:**
+- `event_id` (UUID): 이벤트 ID
+- `proposal_id` (UUID): 제안 ID
+
+**Response:** `201 Created`
+```json
+{
+  "message": "Vote created successfully",
+  "vote_id": "uuid",
+  "proposal_id": "uuid",
+  "vote_count": 5
+}
+```
+
+**에러:**
+- `400 Bad Request`: 제안이 PENDING 상태가 아님
+- `409 Conflict`: 이미 투표함
+
+---
+
+### DELETE /v1/events/{event_id}/assumption-proposals/{proposal_id}/votes
+
+전제 제안 투표 삭제
+
+**인증:** Bearer Token 필수
+
+**Path Parameters:**
+- `event_id` (UUID): 이벤트 ID
+- `proposal_id` (UUID): 제안 ID
+
+**Response:** `200 OK`
+```json
+{
+  "message": "Vote deleted successfully",
+  "vote_id": "uuid",
+  "proposal_id": "uuid",
+  "vote_count": 4
+}
+```
+
+**에러:**
+- `404 Not Found`: 투표를 찾을 수 없음
+
+---
+
+### POST /v1/events/{event_id}/criteria-proposals
+
+기준 제안 생성
+
+**인증:** Bearer Token 필수 (ACCEPTED 멤버십 필요)
+
+**Path Parameters:**
+- `event_id` (UUID): 이벤트 ID
+
+**Request Body:**
+```json
+{
+  "proposal_category": "MODIFICATION",
+  "criteria_id": "uuid",
+  "proposal_content": "수정된 기준 내용",
+  "reason": "이유 (선택)"
+}
+```
+
+**Response:** `201 Created`
+```json
+{
+  "id": "uuid",
+  "event_id": "uuid",
+  "criteria_id": "uuid",
+  "proposal_status": "PENDING",
+  "proposal_category": "MODIFICATION",
+  "proposal_content": "수정된 기준 내용",
+  "reason": "이유",
+  "created_at": "2024-01-01T00:00:00Z",
+  "created_by": "uuid",
+  "vote_count": 0,
+  "has_voted": false
+}
+```
+
+---
+
+### POST /v1/events/{event_id}/criteria-proposals/{proposal_id}/votes
+
+기준 제안 투표 생성
+
+**인증:** Bearer Token 필수
+
+**Path Parameters:**
+- `event_id` (UUID): 이벤트 ID
+- `proposal_id` (UUID): 제안 ID
+
+**Response:** `201 Created`
+```json
+{
+  "message": "Vote created successfully",
+  "vote_id": "uuid",
+  "proposal_id": "uuid",
+  "vote_count": 5
+}
+```
+
+---
+
+### DELETE /v1/events/{event_id}/criteria-proposals/{proposal_id}/votes
+
+기준 제안 투표 삭제
+
+**인증:** Bearer Token 필수
+
+**Path Parameters:**
+- `event_id` (UUID): 이벤트 ID
+- `proposal_id` (UUID): 제안 ID
+
+**Response:** `200 OK`
+```json
+{
+  "message": "Vote deleted successfully",
+  "vote_id": "uuid",
+  "proposal_id": "uuid",
+  "vote_count": 4
+}
+```
+
+---
+
+### POST /v1/events/{event_id}/criteria/{criterion_id}/conclusion-proposals
+
+결론 제안 생성
+
+**인증:** Bearer Token 필수 (ACCEPTED 멤버십 필요)
+
+**Path Parameters:**
+- `event_id` (UUID): 이벤트 ID
+- `criterion_id` (UUID): 기준 ID
+
+**Request Body:**
+```json
+{
+  "proposal_content": "결론 내용"
+}
+```
+
+**Response:** `201 Created`
+```json
+{
+  "id": "uuid",
+  "criterion_id": "uuid",
+  "proposal_status": "PENDING",
+  "proposal_content": "결론 내용",
+  "created_at": "2024-01-01T00:00:00Z",
+  "created_by": "uuid",
+  "vote_count": 0,
+  "has_voted": false
+}
+```
+
+---
+
+### POST /v1/events/{event_id}/conclusion-proposals/{proposal_id}/votes
+
+결론 제안 투표 생성
+
+**인증:** Bearer Token 필수
+
+**Path Parameters:**
+- `event_id` (UUID): 이벤트 ID
+- `proposal_id` (UUID): 제안 ID
+
+**Response:** `201 Created`
+```json
+{
+  "message": "Vote created successfully",
+  "vote_id": "uuid",
+  "proposal_id": "uuid",
+  "vote_count": 5
+}
+```
+
+---
+
+### DELETE /v1/events/{event_id}/conclusion-proposals/{proposal_id}/votes
+
+결론 제안 투표 삭제
+
+**인증:** Bearer Token 필수
+
+**Path Parameters:**
+- `event_id` (UUID): 이벤트 ID
+- `proposal_id` (UUID): 제안 ID
+
+**Response:** `200 OK`
+```json
+{
+  "message": "Vote deleted successfully",
+  "vote_id": "uuid",
+  "proposal_id": "uuid",
+  "vote_count": 4
+}
+```
+
+---
+
+### PATCH /v1/events/{event_id}/assumption-proposals/{proposal_id}/status
+
+전제 제안 상태 변경 (관리자용)
+
+**인증:** Bearer Token 필수 (관리자 권한 필요)
+
+**Path Parameters:**
+- `event_id` (UUID): 이벤트 ID
+- `proposal_id` (UUID): 제안 ID
+
+**Request Body:**
+```json
+{
+  "status": "ACCEPTED"
+}
+```
+
+**Response:** `200 OK`
+```json
+{
+  "id": "uuid",
+  "event_id": "uuid",
+  "assumption_id": null,
+  "proposal_status": "ACCEPTED",
+  "proposal_category": "CREATION",
+  "proposal_content": "새 전제 내용",
+  "reason": "이유",
+  "created_at": "2024-01-01T00:00:00Z",
+  "created_by": "uuid",
+  "vote_count": 5,
+  "has_voted": false
+}
+```
+
+**에러:**
+- `400 Bad Request`: 제안이 PENDING 상태가 아님
+- `403 Forbidden`: 관리자 권한 없음
+- `404 Not Found`: 제안을 찾을 수 없음
+
+**참고:**
+- PENDING 상태만 변경 가능
+- ACCEPTED 시 제안이 자동으로 적용됨
+- status는 `ACCEPTED` 또는 `REJECTED`만 허용
+
+---
+
+### PATCH /v1/events/{event_id}/criteria-proposals/{proposal_id}/status
+
+기준 제안 상태 변경 (관리자용)
+
+**인증:** Bearer Token 필수 (관리자 권한 필요)
+
+**Path Parameters:**
+- `event_id` (UUID): 이벤트 ID
+- `proposal_id` (UUID): 제안 ID
+
+**Request Body:**
+```json
+{
+  "status": "ACCEPTED"
+}
+```
+
+**Response:** `200 OK`
+```json
+{
+  "id": "uuid",
+  "event_id": "uuid",
+  "criteria_id": "uuid",
+  "proposal_status": "ACCEPTED",
+  "proposal_category": "MODIFICATION",
+  "proposal_content": "수정된 기준 내용",
+  "reason": "이유",
+  "created_at": "2024-01-01T00:00:00Z",
+  "created_by": "uuid",
+  "vote_count": 5,
+  "has_voted": false
+}
+```
+
+**참고:**
+- PENDING 상태만 변경 가능
+- ACCEPTED 시 제안이 자동으로 적용됨
+
+---
+
+### PATCH /v1/events/{event_id}/conclusion-proposals/{proposal_id}/status
+
+결론 제안 상태 변경 (관리자용)
+
+**인증:** Bearer Token 필수 (관리자 권한 필요)
+
+**Path Parameters:**
+- `event_id` (UUID): 이벤트 ID
+- `proposal_id` (UUID): 제안 ID
+
+**Request Body:**
+```json
+{
+  "status": "ACCEPTED"
+}
+```
+
+**Response:** `200 OK`
+```json
+{
+  "id": "uuid",
+  "criterion_id": "uuid",
+  "proposal_status": "ACCEPTED",
+  "proposal_content": "결론 내용",
+  "created_at": "2024-01-01T00:00:00Z",
+  "created_by": "uuid",
+  "vote_count": 5,
+  "has_voted": false
+}
+```
+
+**참고:**
+- PENDING 상태만 변경 가능
+- ACCEPTED 시 제안이 자동으로 적용됨
+
+---
+
+### GET /v1/events/{event_id}/criteria/{criterion_id}/comments/count
+
+코멘트 수 조회
+
+**인증:** Bearer Token 필수 (ACCEPTED 멤버십 필요)
+
+**Path Parameters:**
+- `event_id` (UUID): 이벤트 ID
+- `criterion_id` (UUID): 기준 ID
+
+**Response:** `200 OK`
+```json
+{
+  "count": 10
+}
+```
+
+---
+
+### GET /v1/events/{event_id}/criteria/{criterion_id}/comments
+
+코멘트 목록 조회
+
+**인증:** Bearer Token 필수 (ACCEPTED 멤버십 필요)
+
+**Path Parameters:**
+- `event_id` (UUID): 이벤트 ID
+- `criterion_id` (UUID): 기준 ID
+
+**Response:** `200 OK`
+```json
+[
+  {
+    "id": "uuid",
+    "criterion_id": "uuid",
+    "content": "코멘트 내용",
+    "created_at": "2024-01-01T00:00:00Z",
+    "updated_at": null,
+    "created_by": "uuid",
+    "creator": {
+      "id": "uuid",
+      "name": "홍길동",
+      "email": "user@example.com"
+    }
+  }
+]
+```
+
+**참고:**
+- 최신순으로 정렬됨
+- 작성자 정보 포함
+
+---
+
+### POST /v1/events/{event_id}/criteria/{criterion_id}/comments
+
+코멘트 생성
+
+**인증:** Bearer Token 필수 (ACCEPTED 멤버십 필요)
+
+**Path Parameters:**
+- `event_id` (UUID): 이벤트 ID
+- `criterion_id` (UUID): 기준 ID
+
+**Request Body:**
+```json
+{
+  "content": "코멘트 내용"
+}
+```
+
+**Response:** `201 Created`
+```json
+{
+  "id": "uuid",
+  "criterion_id": "uuid",
+  "content": "코멘트 내용",
+  "created_at": "2024-01-01T00:00:00Z",
+  "updated_at": null,
+  "created_by": "uuid",
+  "creator": {
+    "id": "uuid",
+    "name": "홍길동",
+    "email": "user@example.com"
+  }
+}
+```
+
+---
+
+### PATCH /v1/events/{event_id}/comments/{comment_id}
+
+코멘트 수정
+
+**인증:** Bearer Token 필수 (ACCEPTED 멤버십 필요, 본인 코멘트만)
+
+**Path Parameters:**
+- `event_id` (UUID): 이벤트 ID
+- `comment_id` (UUID): 코멘트 ID
+
+**Request Body:**
+```json
+{
+  "content": "수정된 코멘트 내용"
+}
+```
+
+**Response:** `200 OK`
+```json
+{
+  "id": "uuid",
+  "criterion_id": "uuid",
+  "content": "수정된 코멘트 내용",
+  "created_at": "2024-01-01T00:00:00Z",
+  "updated_at": "2024-01-01T01:00:00Z",
+  "created_by": "uuid",
+  "creator": {
+    "id": "uuid",
+    "name": "홍길동",
+    "email": "user@example.com"
+  }
+}
+```
+
+**에러:**
+- `403 Forbidden`: 본인이 작성한 코멘트가 아님
+
+---
+
+### DELETE /v1/events/{event_id}/comments/{comment_id}
+
+코멘트 삭제
+
+**인증:** Bearer Token 필수 (ACCEPTED 멤버십 필요, 본인 코멘트만)
+
+**Path Parameters:**
+- `event_id` (UUID): 이벤트 ID
+- `comment_id` (UUID): 코멘트 ID
+
+**Response:** `204 No Content`
+
+**에러:**
+- `403 Forbidden`: 본인이 작성한 코멘트가 아님
+
+---
+
+### PATCH /v1/events/{event_id}/status
+
+이벤트 상태 변경 (관리자용)
+
+**인증:** Bearer Token 필수 (관리자 권한 필요)
+
+**Path Parameters:**
+- `event_id` (UUID): 이벤트 ID
+
+**Request Body:**
+```json
+{
+  "status": "IN_PROGRESS"
+}
+```
+
+**Response:** `200 OK`
+```json
+{
+  "id": "uuid",
+  "status": "IN_PROGRESS",
+  "updated_at": "2024-01-01T00:00:00Z"
+}
+```
+
+**상태 전이 규칙:**
+- `NOT_STARTED` → `IN_PROGRESS` (시작)
+- `IN_PROGRESS` → `PAUSED` (일시정지)
+- `IN_PROGRESS` → `FINISHED` (종료)
+- `PAUSED` → `IN_PROGRESS` (재개)
+- `PAUSED` → `FINISHED` (종료)
+- `FINISHED` → 변경 불가
+
+**에러:**
+- `400 Bad Request`: 잘못된 상태 전이
+- `403 Forbidden`: 관리자 권한 없음
+
+---
+
 ## 개발용 API (`/dev`)
 
 개발 및 테스트를 위한 CRUD API입니다. 자세한 내용은 [`dev_api_spec.md`](./dev_api_spec.md)를 참고하세요.
@@ -848,23 +1488,6 @@ Authorization: Bearer <access_token>
 
 다음 API들은 아직 구현되지 않았습니다:
 
-### 이벤트 상세
-- `GET /v1/events/{event_id}` - 이벤트 상세 조회
-
-### 제안 및 투표
-- `POST /v1/events/{event_id}/assumption-proposals` - 전제 제안 생성
-- `POST /v1/events/{event_id}/criteria-proposals` - 기준 제안 생성
-- `POST /v1/events/{event_id}/assumption-proposals/{proposal_id}/votes` - 전제 제안 투표
-- `POST /v1/events/{event_id}/criteria-proposals/{proposal_id}/votes` - 기준 제안 투표
-- `POST /v1/events/{event_id}/criteria/{criterion_id}/conclusion-proposals` - 결론 제안 생성
-- `POST /v1/events/{event_id}/conclusion-proposals/{proposal_id}/votes` - 결론 제안 투표
-
-### 코멘트
-- `GET /v1/events/{event_id}/criteria/{criterion_id}/comments` - 코멘트 조회
-- `POST /v1/events/{event_id}/criteria/{criterion_id}/comments` - 코멘트 생성
-- `PATCH /v1/events/{event_id}/comments/{comment_id}` - 코멘트 수정
-- `DELETE /v1/events/{event_id}/comments/{comment_id}` - 코멘트 삭제
-
 ### 투표
 - `GET /v1/events/{event_id}/votes/me` - 본인 투표 내역 조회
 - `POST /v1/events/{event_id}/votes` - 투표 생성/업데이트
@@ -883,3 +1506,14 @@ Authorization: Bearer <access_token>
 - `PENDING`: 승인 대기
 - `ACCEPTED`: 승인됨
 - `REJECTED`: 거부됨
+
+### ProposalStatusType
+- `PENDING`: 대기 중
+- `ACCEPTED`: 승인됨
+- `REJECTED`: 거부됨
+- `DELETED`: 삭제됨
+
+### ProposalCategoryType
+- `CREATION`: 생성
+- `MODIFICATION`: 수정
+- `DELETION`: 삭제

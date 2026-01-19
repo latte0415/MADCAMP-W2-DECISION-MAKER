@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 from sqlalchemy import (
-    Text, DateTime, ForeignKey,
+    Text, DateTime, ForeignKey, Boolean,
     Index, func
 )
 from sqlalchemy.dialects.postgresql import UUID
@@ -25,6 +25,9 @@ class Assumption(Base):
         nullable=False,
     )
     content: Mapped[str] = mapped_column(Text, nullable=False)
+    is_deleted: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
+    is_modified: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
+    original_content: Mapped[str | None] = mapped_column(Text, nullable=True)
     
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
@@ -72,6 +75,9 @@ class Criterion(Base):
     )
     content: Mapped[str] = mapped_column(Text, nullable=False)
     conclusion: Mapped[str | None] = mapped_column(Text, nullable=True)
+    is_deleted: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
+    is_modified: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
+    original_content: Mapped[str | None] = mapped_column(Text, nullable=True)
     
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
