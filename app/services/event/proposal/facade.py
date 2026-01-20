@@ -128,13 +128,13 @@ class ProposalService(EventBaseService):
         # Idempotency 적용
         result = self.idempotency_wrapper.wrap(
             idempotency_key=idempotency_key,
-                user_id=user_id,
+            user_id=user_id,
             method="POST",
             path=f"/events/{event_id}/assumption-proposals",
             body=request.model_dump(exclude_none=True, mode='json'),
-                fn=_execute_create
-            )
-            return AssumptionProposalResponse(**result)
+            fn=_execute_create
+        )
+        return AssumptionProposalResponse(**result)
 
     def create_assumption_proposal_vote(
         self,
@@ -167,7 +167,7 @@ class ProposalService(EventBaseService):
             return self.repos.proposal.create_assumption_proposal_vote(vote)
         
         def auto_approve(proposal, event):
-        vote_count = len(proposal.votes) if proposal.votes else 0
+            vote_count = len(proposal.votes) if proposal.votes else 0
             self.auto_approval_checker.check_and_auto_approve(
                 proposal=proposal,
                 event=event,
@@ -190,11 +190,11 @@ class ProposalService(EventBaseService):
             )
         
         def build_response(vote, proposal, vote_count):
-        return AssumptionProposalVoteResponse(
-            message="Vote created successfully",
+            return AssumptionProposalVoteResponse(
+                message="Vote created successfully",
                 vote_id=vote.id,
-            proposal_id=proposal_id,
-            vote_count=vote_count,
+                proposal_id=proposal_id,
+                vote_count=vote_count,
             ).model_dump()
         
         result = self.vote_usecase.create_vote(
@@ -248,7 +248,7 @@ class ProposalService(EventBaseService):
             self.repos.proposal.delete_assumption_proposal_vote(vote)
         
         def auto_approve(proposal, event):
-        vote_count = len(proposal.votes) if proposal.votes else 0
+            vote_count = len(proposal.votes) if proposal.votes else 0
             self.auto_approval_checker.check_and_auto_approve(
                 proposal=proposal,
                 event=event,
@@ -271,11 +271,11 @@ class ProposalService(EventBaseService):
             )
         
         def build_response(vote, proposal, vote_count):
-        return AssumptionProposalVoteResponse(
-            message="Vote deleted successfully",
-            vote_id=vote.id,
-            proposal_id=proposal_id,
-            vote_count=vote_count,
+            return AssumptionProposalVoteResponse(
+                message="Vote deleted successfully",
+                vote_id=vote.id,
+                proposal_id=proposal_id,
+                vote_count=vote_count,
             ).model_dump()
         
         result = self.vote_usecase.delete_vote(
@@ -548,13 +548,13 @@ class ProposalService(EventBaseService):
         # Idempotency 적용
         result = self.idempotency_wrapper.wrap(
             idempotency_key=idempotency_key,
-                user_id=user_id,
+            user_id=user_id,
             method="POST",
             path=f"/events/{event_id}/criteria-proposals",
             body=request.model_dump(exclude_none=True, mode='json'),
-                fn=_execute_create
-            )
-            return CriteriaProposalResponse(**result)
+            fn=_execute_create
+        )
+        return CriteriaProposalResponse(**result)
 
     def create_criteria_proposal_vote(
         self,
@@ -580,14 +580,14 @@ class ProposalService(EventBaseService):
                 )
         
         def create_vote(pid, uid):
-        vote = CriterionProposalVote(
+            vote = CriterionProposalVote(
                 criterion_proposal_id=pid,
                 created_by=uid,
             )
             return self.repos.proposal.create_criteria_proposal_vote(vote)
         
         def auto_approve(proposal, event):
-        vote_count = len(proposal.votes) if proposal.votes else 0
+            vote_count = len(proposal.votes) if proposal.votes else 0
             self.auto_approval_checker.check_and_auto_approve(
                 proposal=proposal,
                 event=event,
@@ -610,11 +610,11 @@ class ProposalService(EventBaseService):
             )
         
         def build_response(vote, proposal, vote_count):
-        return CriteriaProposalVoteResponse(
-            message="Vote created successfully",
+            return CriteriaProposalVoteResponse(
+                message="Vote created successfully",
                 vote_id=vote.id,
-            proposal_id=proposal_id,
-            vote_count=vote_count,
+                proposal_id=proposal_id,
+                vote_count=vote_count,
             ).model_dump()
         
         result = self.vote_usecase.create_vote(
@@ -668,7 +668,7 @@ class ProposalService(EventBaseService):
             self.repos.proposal.delete_criteria_proposal_vote(vote)
         
         def auto_approve(proposal, event):
-        vote_count = len(proposal.votes) if proposal.votes else 0
+            vote_count = len(proposal.votes) if proposal.votes else 0
             self.auto_approval_checker.check_and_auto_approve(
                 proposal=proposal,
                 event=event,
@@ -691,11 +691,11 @@ class ProposalService(EventBaseService):
             )
         
         def build_response(vote, proposal, vote_count):
-        return CriteriaProposalVoteResponse(
-            message="Vote deleted successfully",
-            vote_id=vote.id,
-            proposal_id=proposal_id,
-            vote_count=vote_count,
+            return CriteriaProposalVoteResponse(
+                message="Vote deleted successfully",
+                vote_id=vote.id,
+                proposal_id=proposal_id,
+                vote_count=vote_count,
             ).model_dump()
         
         result = self.vote_usecase.delete_vote(
@@ -968,13 +968,13 @@ class ProposalService(EventBaseService):
         # Idempotency 적용
         result = self.idempotency_wrapper.wrap(
             idempotency_key=idempotency_key,
-                user_id=user_id,
+            user_id=user_id,
             method="POST",
             path=f"/events/{event_id}/criteria/{criterion_id}/conclusion-proposals",
             body=request.model_dump(exclude_none=True, mode='json'),
-                fn=_execute_create
-            )
-            return ConclusionProposalResponse(**result)
+            fn=_execute_create
+        )
+        return ConclusionProposalResponse(**result)
 
     def create_conclusion_proposal_vote(
         self,
@@ -1007,14 +1007,14 @@ class ProposalService(EventBaseService):
                 )
         
         def create_vote(pid, uid):
-        vote = ConclusionProposalVote(
+            vote = ConclusionProposalVote(
                 conclusion_proposal_id=pid,
                 created_by=uid,
             )
             return self.repos.proposal.create_conclusion_proposal_vote(vote)
         
         def auto_approve(proposal, event):
-        vote_count = len(proposal.votes) if proposal.votes else 0
+            vote_count = len(proposal.votes) if proposal.votes else 0
             # 전체 ACCEPTED 멤버십 수 조회
             from app.models.event import EventMembership
             from sqlalchemy import func as sql_func, select
@@ -1050,11 +1050,11 @@ class ProposalService(EventBaseService):
             )
         
         def build_response(vote, proposal, vote_count):
-        return ConclusionProposalVoteResponse(
-            message="Vote created successfully",
+            return ConclusionProposalVoteResponse(
+                message="Vote created successfully",
                 vote_id=vote.id,
-            proposal_id=proposal_id,
-            vote_count=vote_count,
+                proposal_id=proposal_id,
+                vote_count=vote_count,
             ).model_dump()
         
         result = self.vote_usecase.create_vote(
@@ -1115,7 +1115,7 @@ class ProposalService(EventBaseService):
             self.repos.proposal.delete_conclusion_proposal_vote(vote)
         
         def auto_approve(proposal, event):
-        vote_count = len(proposal.votes) if proposal.votes else 0
+            vote_count = len(proposal.votes) if proposal.votes else 0
             # 전체 ACCEPTED 멤버십 수 조회
             from app.models.event import EventMembership
             from sqlalchemy import func as sql_func, select
@@ -1151,11 +1151,11 @@ class ProposalService(EventBaseService):
             )
         
         def build_response(vote, proposal, vote_count):
-        return ConclusionProposalVoteResponse(
-            message="Vote deleted successfully",
-            vote_id=vote.id,
-            proposal_id=proposal_id,
-            vote_count=vote_count,
+            return ConclusionProposalVoteResponse(
+                message="Vote deleted successfully",
+                vote_id=vote.id,
+                proposal_id=proposal_id,
+                vote_count=vote_count,
             ).model_dump()
         
         result = self.vote_usecase.delete_vote(
@@ -1327,38 +1327,38 @@ class ProposalService(EventBaseService):
         def _execute_update() -> dict:
             def validate_proposal_belongs_to_event(proposal, eid):
                 if proposal.event_id != eid:
-                raise NotFoundError(
-                    message="Proposal not found",
-                    detail="Proposal does not belong to this event"
-                )
+                    raise NotFoundError(
+                        message="Proposal not found",
+                        detail="Proposal does not belong to this event"
+                    )
 
             def create_outbox_event(proposal, event, st):
-                    if self.outbox_repo:
+                if self.outbox_repo:
                     event_type = "proposal.approved.v1" if st == ProposalStatusType.ACCEPTED else "proposal.rejected.v1"
                     key = "approved_by" if st == ProposalStatusType.ACCEPTED else "rejected_by"
                     payload = {
-                                "proposal_id": str(proposal.id),
-                                "proposal_type": "assumption",
+                        "proposal_id": str(proposal.id),
+                        "proposal_type": "assumption",
                         "event_id": str(proposal.event_id),
                         key: str(user_id)
                     }
                     self.outbox_repo.create_outbox_event(event_type=event_type, payload=payload)
             
             def build_response(proposal, uid):
-            vote_count = len(proposal.votes) if proposal.votes else 0
+                vote_count = len(proposal.votes) if proposal.votes else 0
                 has_voted = any(vote.created_by == uid for vote in (proposal.votes or []))
                 return AssumptionProposalResponse(
-                id=proposal.id,
-                event_id=proposal.event_id,
-                assumption_id=proposal.assumption_id,
-                proposal_status=proposal.proposal_status,
-                proposal_category=proposal.proposal_category,
-                proposal_content=proposal.proposal_content,
-                reason=proposal.reason,
-                created_at=proposal.created_at,
-                created_by=proposal.created_by,
-                vote_count=vote_count,
-                has_voted=has_voted
+                    id=proposal.id,
+                    event_id=proposal.event_id,
+                    assumption_id=proposal.assumption_id,
+                    proposal_status=proposal.proposal_status,
+                    proposal_category=proposal.proposal_category,
+                    proposal_content=proposal.proposal_content,
+                    reason=proposal.reason,
+                    created_at=proposal.created_at,
+                    created_by=proposal.created_by,
+                    vote_count=vote_count,
+                    has_voted=has_voted
                 ).model_dump()
             
             return self.approval_usecase.update_status(
@@ -1372,8 +1372,8 @@ class ProposalService(EventBaseService):
                 approve_if_pending_fn=self.repos.proposal.approve_assumption_proposal_if_pending,
                 reject_if_pending_fn=self.repos.proposal.reject_assumption_proposal_if_pending,
                 apply_proposal_fn=self._apply_assumption_proposal,
-                create_outbox_event_fn=create_outbox_event,
                 build_response_fn=build_response,
+                create_outbox_event_fn=create_outbox_event,
             )
         
         # Idempotency 적용
@@ -1404,38 +1404,38 @@ class ProposalService(EventBaseService):
         def _execute_update() -> dict:
             def validate_proposal_belongs_to_event(proposal, eid):
                 if proposal.event_id != eid:
-                raise NotFoundError(
-                    message="Proposal not found",
-                    detail="Proposal does not belong to this event"
-                )
+                    raise NotFoundError(
+                        message="Proposal not found",
+                        detail="Proposal does not belong to this event"
+                    )
 
             def create_outbox_event(proposal, event, st):
-                    if self.outbox_repo:
+                if self.outbox_repo:
                     event_type = "proposal.approved.v1" if st == ProposalStatusType.ACCEPTED else "proposal.rejected.v1"
                     key = "approved_by" if st == ProposalStatusType.ACCEPTED else "rejected_by"
                     payload = {
-                                "proposal_id": str(proposal.id),
-                                "proposal_type": "criteria",
+                        "proposal_id": str(proposal.id),
+                        "proposal_type": "criteria",
                         "event_id": str(proposal.event_id),
                         key: str(user_id)
                     }
                     self.outbox_repo.create_outbox_event(event_type=event_type, payload=payload)
             
             def build_response(proposal, uid):
-            vote_count = len(proposal.votes) if proposal.votes else 0
+                vote_count = len(proposal.votes) if proposal.votes else 0
                 has_voted = any(vote.created_by == uid for vote in (proposal.votes or []))
                 return CriteriaProposalResponse(
-                id=proposal.id,
-                event_id=proposal.event_id,
-                criteria_id=proposal.criteria_id,
-                proposal_status=proposal.proposal_status,
-                proposal_category=proposal.proposal_category,
-                proposal_content=proposal.proposal_content,
-                reason=proposal.reason,
-                created_at=proposal.created_at,
-                created_by=proposal.created_by,
-                vote_count=vote_count,
-                has_voted=has_voted
+                    id=proposal.id,
+                    event_id=proposal.event_id,
+                    criteria_id=proposal.criteria_id,
+                    proposal_status=proposal.proposal_status,
+                    proposal_category=proposal.proposal_category,
+                    proposal_content=proposal.proposal_content,
+                    reason=proposal.reason,
+                    created_at=proposal.created_at,
+                    created_by=proposal.created_by,
+                    vote_count=vote_count,
+                    has_voted=has_voted
                 ).model_dump()
             
             return self.approval_usecase.update_status(
@@ -1449,8 +1449,8 @@ class ProposalService(EventBaseService):
                 approve_if_pending_fn=self.repos.proposal.approve_criteria_proposal_if_pending,
                 reject_if_pending_fn=self.repos.proposal.reject_criteria_proposal_if_pending,
                 apply_proposal_fn=self._apply_criteria_proposal,
-                create_outbox_event_fn=create_outbox_event,
                 build_response_fn=build_response,
+                create_outbox_event_fn=create_outbox_event,
             )
         
         # Idempotency 적용
@@ -1481,38 +1481,38 @@ class ProposalService(EventBaseService):
         def _execute_update() -> dict:
             def validate_proposal_belongs_to_event(proposal, eid):
                 # criterion을 통해 event_id 확인
-            criterion = self.repos.criterion.get_by_id(proposal.criterion_id)
+                criterion = self.repos.criterion.get_by_id(proposal.criterion_id)
                 if not criterion or criterion.event_id != eid:
-                raise NotFoundError(
-                    message="Proposal not found",
-                    detail="Proposal does not belong to this event"
-                )
+                    raise NotFoundError(
+                        message="Proposal not found",
+                        detail="Proposal does not belong to this event"
+                    )
 
             def create_outbox_event(proposal, event, st):
-                    if self.outbox_repo:
+                if self.outbox_repo:
                     event_type = "proposal.approved.v1" if st == ProposalStatusType.ACCEPTED else "proposal.rejected.v1"
                     key = "approved_by" if st == ProposalStatusType.ACCEPTED else "rejected_by"
                     criterion = self.repos.criterion.get_by_id(proposal.criterion_id)
                     payload = {
-                                "proposal_id": str(proposal.id),
-                                "proposal_type": "conclusion",
+                        "proposal_id": str(proposal.id),
+                        "proposal_type": "conclusion",
                         "event_id": str(criterion.event_id) if criterion else None,
                         key: str(user_id)
                     }
                     self.outbox_repo.create_outbox_event(event_type=event_type, payload=payload)
             
             def build_response(proposal, uid):
-            vote_count = len(proposal.votes) if proposal.votes else 0
+                vote_count = len(proposal.votes) if proposal.votes else 0
                 has_voted = any(vote.created_by == uid for vote in (proposal.votes or []))
                 return ConclusionProposalResponse(
-                id=proposal.id,
-                criterion_id=proposal.criterion_id,
-                proposal_status=proposal.proposal_status,
-                proposal_content=proposal.proposal_content,
-                created_at=proposal.created_at,
-                created_by=proposal.created_by,
-                vote_count=vote_count,
-                has_voted=has_voted
+                    id=proposal.id,
+                    criterion_id=proposal.criterion_id,
+                    proposal_status=proposal.proposal_status,
+                    proposal_content=proposal.proposal_content,
+                    created_at=proposal.created_at,
+                    created_by=proposal.created_by,
+                    vote_count=vote_count,
+                    has_voted=has_voted
                 ).model_dump()
             
             return self.approval_usecase.update_status(
@@ -1526,8 +1526,8 @@ class ProposalService(EventBaseService):
                 approve_if_pending_fn=self.repos.proposal.approve_conclusion_proposal_if_pending,
                 reject_if_pending_fn=self.repos.proposal.reject_conclusion_proposal_if_pending,
                 apply_proposal_fn=self._apply_conclusion_proposal,
-                create_outbox_event_fn=create_outbox_event,
                 build_response_fn=build_response,
+                create_outbox_event_fn=create_outbox_event,
             )
         
         # Idempotency 적용

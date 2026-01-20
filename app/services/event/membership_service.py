@@ -12,6 +12,7 @@ from app.services.event.base import EventBaseService
 from app.exceptions import NotFoundError, ConflictError, ValidationError
 from app.utils.transaction import transaction
 from app.services.idempotency_service import IdempotencyService
+from app.repositories.outbox_repository import OutboxRepository
 
 
 # 멤버십 상태별 에러 메시지 상수
@@ -31,12 +32,14 @@ class MembershipService(EventBaseService):
         repos: EventAggregateRepositories,
         membership_repo: MembershipRepository,
         event_repo: EventRepository,
-        idempotency_service: IdempotencyService | None = None
+        idempotency_service: IdempotencyService | None = None,
+        outbox_repo: OutboxRepository | None = None
     ):
         super().__init__(db, repos)
         self.membership_repo = membership_repo
         self.event_repo = event_repo
         self.idempotency_service = idempotency_service
+        self.outbox_repo = outbox_repo
 
     def create_admin_membership(self, event_id: UUID, admin_id: UUID) -> EventMembership:
         """
@@ -59,7 +62,8 @@ class MembershipService(EventBaseService):
         입장 코드로 이벤트 참가 신청
         - entrance_code로 이벤트 조회
         - 이미 멤버십이 있으면 ConflictError 발생
-        - 없으면 PENDING 상태로 멤버십 생성
+        - 없으면 멤버십 생성
+        - membership_is_auto_approved가 true면 자동 승인
         - 반환: (event_id, message)
         """
         # 입장 코드로 이벤트 조회
@@ -86,16 +90,47 @@ class MembershipService(EventBaseService):
                 detail=detail
             )
         
-        # PENDING 상태로 멤버십 생성
-        membership = EventMembership(
-            user_id=user_id,
-            event_id=event.id,
-            membership_status=MembershipStatusType.PENDING,
-            joined_at=None,  # ACCEPTED가 되면 설정됨
-        )
+        # 자동 승인 여부 확인
+        is_auto_approved = event.membership_is_auto_approved
+        
         with transaction(self.db):
-            self.membership_repo.create_membership(membership)
-        return event.id, "정상적으로 신청되었습니다."
+            if is_auto_approved:
+                # 자동 승인: ACCEPTED 상태로 생성
+                joined_at = datetime.now(timezone.utc)
+                membership = EventMembership(
+                    user_id=user_id,
+                    event_id=event.id,
+                    membership_status=MembershipStatusType.ACCEPTED,
+                    joined_at=joined_at,
+                )
+                created_membership = self.membership_repo.create_membership(membership)
+                
+                # Outbox 이벤트 추가 (자동 승인)
+                if self.outbox_repo:
+                    self.outbox_repo.create_outbox_event(
+                        event_type="membership.approved.v1",
+                        payload={
+                            "membership_id": str(created_membership.id),
+                            "event_id": str(event.id),
+                            "user_id": str(user_id),
+                            "approved_by": None,  # 자동 승인은 approved_by 없음
+                            "is_auto_approved": True  # 자동 승인 표시
+                        }
+                    )
+            else:
+                # 수동 승인: PENDING 상태로 생성
+                membership = EventMembership(
+                    user_id=user_id,
+                    event_id=event.id,
+                    membership_status=MembershipStatusType.PENDING,
+                    joined_at=None,
+                )
+                self.membership_repo.create_membership(membership)
+        
+        if is_auto_approved:
+            return event.id, "정상적으로 가입되었습니다."
+        else:
+            return event.id, "정상적으로 신청되었습니다."
 
 
     def approve_membership(
@@ -151,6 +186,19 @@ class MembershipService(EventBaseService):
                             message="Membership status changed",
                             detail="Membership status has changed and cannot be updated"
                         )
+                
+                # Outbox 이벤트 추가 (트랜잭션 내부)
+                if self.outbox_repo:
+                    self.outbox_repo.create_outbox_event(
+                        event_type="membership.approved.v1",
+                        payload={
+                            "membership_id": str(updated_membership.id),
+                            "event_id": str(event_id),
+                            "user_id": str(updated_membership.user_id),
+                            "approved_by": str(user_id),
+                            "is_auto_approved": False  # 수동 승인
+                        }
+                    )
                 
                 result = updated_membership
             return {"id": str(result.id), "membership_status": result.membership_status.value}
@@ -222,6 +270,18 @@ class MembershipService(EventBaseService):
                             message="Membership status changed",
                             detail="Membership status has changed and cannot be updated"
                         )
+                
+                # Outbox 이벤트 추가 (트랜잭션 내부)
+                if self.outbox_repo:
+                    self.outbox_repo.create_outbox_event(
+                        event_type="membership.rejected.v1",
+                        payload={
+                            "membership_id": str(updated_membership.id),
+                            "event_id": str(event_id),
+                            "user_id": str(updated_membership.user_id),
+                            "rejected_by": str(user_id)
+                        }
+                    )
                 
                 result = updated_membership
             return {"id": str(result.id), "membership_status": result.membership_status.value}

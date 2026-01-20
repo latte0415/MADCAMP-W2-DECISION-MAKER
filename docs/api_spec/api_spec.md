@@ -225,14 +225,16 @@ Idempotency-Key: 550e8400-e29b-41d4-a716-446655440000
 - `POST /v1/events/{event_id}/criteria/{criterion_id}/conclusion-proposals` - 결론 제안 생성
 
 #### 투표
-- `POST /v1/events/{event_id}/assumption-proposals/{proposal_id}/votes` - 전제 제안 투표
-- `POST /v1/events/{event_id}/criteria-proposals/{proposal_id}/votes` - 기준 제안 투표
-- `POST /v1/events/{event_id}/conclusion-proposals/{proposal_id}/votes` - 결론 제안 투표
 - `POST /v1/events/{event_id}/votes` - 최종 투표 생성/업데이트
 
-#### 이벤트 설정 (관리자)
-- `PATCH /v1/events/{event_id}` - 이벤트 설정 수정
-- `PATCH /v1/events/{event_id}/status` - 이벤트 상태 변경
+#### 제안 상태 변경 (관리자)
+- `PATCH /v1/events/{event_id}/assumption-proposals/{proposal_id}/status` - 전제 제안 상태 변경
+- `PATCH /v1/events/{event_id}/criteria-proposals/{proposal_id}/status` - 기준 제안 상태 변경
+- `PATCH /v1/events/{event_id}/conclusion-proposals/{proposal_id}/status` - 결론 제안 상태 변경
+
+#### 멤버십 관리 (관리자)
+- `PATCH /v1/events/{event_id}/memberships/{membership_id}/approve` - 멤버십 승인
+- `PATCH /v1/events/{event_id}/memberships/{membership_id}/reject` - 멤버십 거부
 
 ### 동작 방식
 
@@ -1070,6 +1072,9 @@ function VoteButton({ eventId, voteData }: Props) {
 }
 ```
 
+**참고:**
+- 이 엔드포인트는 Idempotency-Key를 사용하지 않습니다.
+
 ---
 
 ### PATCH /v1/events/{event_id}/memberships/{membership_id}/approve
@@ -1081,6 +1086,8 @@ function VoteButton({ eventId, voteData }: Props) {
 **Path Parameters:**
 - `event_id` (UUID): 이벤트 ID
 - `membership_id` (UUID): 멤버십 ID
+
+**Idempotency-Key:** 필수 헤더
 
 **Response:** `200 OK`
 ```json
@@ -1105,6 +1112,8 @@ function VoteButton({ eventId, voteData }: Props) {
 **Path Parameters:**
 - `event_id` (UUID): 이벤트 ID
 - `membership_id` (UUID): 멤버십 ID
+
+**Idempotency-Key:** 필수 헤더
 
 **Response:** `200 OK`
 ```json
@@ -1171,6 +1180,8 @@ function VoteButton({ eventId, voteData }: Props) {
   {
     "user_id": "uuid",
     "membership_id": "uuid",
+    "name": "사용자 이름",
+    "email": "user@example.com",
     "status": "ACCEPTED",
     "created_at": "2024-01-01T00:00:00Z",
     "joined_at": "2024-01-01T01:00:00Z",
@@ -1250,6 +1261,8 @@ function VoteButton({ eventId, voteData }: Props) {
 전제 제안 생성
 
 **인증:** Bearer Token 필수 (ACCEPTED 멤버십 필요)
+
+**Idempotency-Key:** 필수 헤더
 
 **Path Parameters:**
 - `event_id` (UUID): 이벤트 ID
@@ -1345,6 +1358,8 @@ function VoteButton({ eventId, voteData }: Props) {
 
 **인증:** Bearer Token 필수 (ACCEPTED 멤버십 필요)
 
+**Idempotency-Key:** 필수 헤더
+
 **Path Parameters:**
 - `event_id` (UUID): 이벤트 ID
 
@@ -1427,6 +1442,8 @@ function VoteButton({ eventId, voteData }: Props) {
 
 **인증:** Bearer Token 필수 (ACCEPTED 멤버십 필요)
 
+**Idempotency-Key:** 필수 헤더
+
 **Path Parameters:**
 - `event_id` (UUID): 이벤트 ID
 - `criterion_id` (UUID): 기준 ID
@@ -1504,6 +1521,8 @@ function VoteButton({ eventId, voteData }: Props) {
 
 **인증:** Bearer Token 필수 (관리자 권한 필요)
 
+**Idempotency-Key:** 필수 헤더
+
 **Path Parameters:**
 - `event_id` (UUID): 이벤트 ID
 - `proposal_id` (UUID): 제안 ID
@@ -1550,6 +1569,8 @@ function VoteButton({ eventId, voteData }: Props) {
 
 **인증:** Bearer Token 필수 (관리자 권한 필요)
 
+**Idempotency-Key:** 필수 헤더
+
 **Path Parameters:**
 - `event_id` (UUID): 이벤트 ID
 - `proposal_id` (UUID): 제안 ID
@@ -1589,6 +1610,8 @@ function VoteButton({ eventId, voteData }: Props) {
 결론 제안 상태 변경 (관리자용)
 
 **인증:** Bearer Token 필수 (관리자 권한 필요)
+
+**Idempotency-Key:** 필수 헤더
 
 **Path Parameters:**
 - `event_id` (UUID): 이벤트 ID
@@ -1811,6 +1834,8 @@ function VoteButton({ eventId, voteData }: Props) {
 
 **인증:** Bearer Token 필수 (ACCEPTED 멤버십 필요)
 
+**Idempotency-Key:** 필수 헤더
+
 **Path Parameters:**
 - `event_id` (UUID): 이벤트 ID
 
@@ -1956,6 +1981,9 @@ function VoteButton({ eventId, voteData }: Props) {
 **에러:**
 - `400 Bad Request`: 잘못된 상태 전이
 - `403 Forbidden`: 관리자 권한 없음
+
+**참고:**
+- 이 엔드포인트는 Idempotency-Key를 사용하지 않습니다.
 
 ---
 
