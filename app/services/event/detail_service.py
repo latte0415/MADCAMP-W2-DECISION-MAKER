@@ -4,6 +4,7 @@ from uuid import UUID
 from app.models.event import MembershipStatusType
 from app.models.proposal import ProposalCategoryType, ProposalStatusType
 from app.services.event.base import EventBaseService
+from app.repositories.vote_repository import VoteRepository
 from app.schemas.event import (
     EventDetailResponse,
     AssumptionProposalInfo,
@@ -245,6 +246,11 @@ class EventDetailService(EventBaseService):
                 )
             )
         
+        # 참가 인원 수 및 투표 완료 인원 수 계산
+        current_participants_count = self.count_accepted_members(event_id)
+        vote_repo = VoteRepository(self.db)
+        voted_participants_count = vote_repo.count_voted_users(event_id)
+        
         return EventDetailResponse(
             id=event.id,
             decision_subject=event.decision_subject,
@@ -258,4 +264,6 @@ class EventDetailService(EventBaseService):
             criteria=criteria_with_proposals,
             assumption_creation_proposals=assumption_creation_proposals,
             criteria_creation_proposals=criteria_creation_proposals,
+            current_participants_count=current_participants_count,
+            voted_participants_count=voted_participants_count,
         )
