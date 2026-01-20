@@ -34,4 +34,5 @@ logs/
 *.swo
 *~
 .DS_Store
-학습목표.md
+
+docs/personal/
