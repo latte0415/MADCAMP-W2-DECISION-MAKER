@@ -10,6 +10,7 @@ from app.repositories.event_repository import EventRepository
 from app.dependencies.aggregate_repositories import EventAggregateRepositories
 from app.services.event.base import EventBaseService
 from app.exceptions import NotFoundError, ConflictError, ValidationError
+from app.utils.transaction import transaction
 
 
 # 멤버십 상태별 에러 메시지 상수
@@ -46,8 +47,8 @@ class MembershipService(EventBaseService):
             membership_status=MembershipStatusType.ACCEPTED,
             joined_at=datetime.now(timezone.utc),
         )
-        result = self.membership_repo.create_membership(membership)
-        self.db.commit()
+        with transaction(self.db):
+            result = self.membership_repo.create_membership(membership)
         return result
 
     def join_event_by_code(self, entrance_code: str, user_id: UUID) -> tuple[UUID, str]:
@@ -89,8 +90,8 @@ class MembershipService(EventBaseService):
             membership_status=MembershipStatusType.PENDING,
             joined_at=None,  # ACCEPTED가 되면 설정됨
         )
-        self.membership_repo.create_membership(membership)
-        self.db.commit()
+        with transaction(self.db):
+            self.membership_repo.create_membership(membership)
         return event.id, "정상적으로 신청되었습니다."
 
 
@@ -122,11 +123,10 @@ class MembershipService(EventBaseService):
             )
         
         # 승인 처리
-        membership.membership_status = MembershipStatusType.ACCEPTED
-        membership.joined_at = datetime.now(timezone.utc)
-        
-        result = self.membership_repo.update_membership(membership)
-        self.db.commit()
+        with transaction(self.db):
+            membership.membership_status = MembershipStatusType.ACCEPTED
+            membership.joined_at = datetime.now(timezone.utc)
+            result = self.membership_repo.update_membership(membership)
         return result
 
     def reject_membership(
@@ -147,10 +147,9 @@ class MembershipService(EventBaseService):
         self._validate_membership_pending(membership, "reject")
         
         # 거부 처리
-        membership.membership_status = MembershipStatusType.REJECTED
-        
-        result = self.membership_repo.update_membership(membership)
-        self.db.commit()
+        with transaction(self.db):
+            membership.membership_status = MembershipStatusType.REJECTED
+            result = self.membership_repo.update_membership(membership)
         return result
 
     def bulk_approve_memberships(
@@ -185,18 +184,18 @@ class MembershipService(EventBaseService):
         approved_count = 0
         failed_count = 0
         
-        for membership in pending_memberships:
-            if current_count >= event.max_membership:
-                failed_count += 1
-                continue
-            
-            membership.membership_status = MembershipStatusType.ACCEPTED
-            membership.joined_at = datetime.now(timezone.utc)
-            self.membership_repo.update_membership(membership)
-            approved_count += 1
-            current_count += 1
+        with transaction(self.db):
+            for membership in pending_memberships:
+                if current_count >= event.max_membership:
+                    failed_count += 1
+                    continue
+                
+                membership.membership_status = MembershipStatusType.ACCEPTED
+                membership.joined_at = datetime.now(timezone.utc)
+                self.membership_repo.update_membership(membership)
+                approved_count += 1
+                current_count += 1
         
-        self.db.commit()  # 모든 승인 작업을 한 번에 commit
         return {
             "approved_count": approved_count,
             "failed_count": failed_count,
@@ -221,12 +220,12 @@ class MembershipService(EventBaseService):
         
         rejected_count = 0
         
-        for membership in pending_memberships:
-            membership.membership_status = MembershipStatusType.REJECTED
-            self.membership_repo.update_membership(membership)
-            rejected_count += 1
+        with transaction(self.db):
+            for membership in pending_memberships:
+                membership.membership_status = MembershipStatusType.REJECTED
+                self.membership_repo.update_membership(membership)
+                rejected_count += 1
         
-        self.db.commit()  # 모든 거부 작업을 한 번에 commit
         return {
             "rejected_count": rejected_count,
         }

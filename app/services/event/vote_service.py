@@ -18,6 +18,7 @@ from app.schemas.event.vote import (
 from app.schemas.event.common import OptionInfo
 from app.schemas.event.setting import CriterionInfo
 from app.exceptions import NotFoundError, ForbiddenError, ValidationError
+from app.utils.transaction import transaction
 
 
 class VoteService(EventBaseService):
@@ -184,39 +185,40 @@ class VoteService(EventBaseService):
                     detail=f"Criterion {criterion_id} does not belong to event {event_id}"
                 )
         
-        # 기존 OptionVote 조회 및 삭제 (있는 경우)
+        # 기존 투표 삭제 및 새 투표 생성
         existing_option_vote = self.vote_repo.get_user_option_vote(event_id, user_id)
-        if existing_option_vote:
-            self.vote_repo.delete_option_vote(existing_option_vote)
-        
-        # 기존 CriterionPriority 조회 및 삭제 (있는 경우)
         existing_criterion_priorities = self.vote_repo.get_user_criterion_priorities(event_id, user_id)
-        if existing_criterion_priorities:
-            self.vote_repo.delete_criterion_priorities(existing_criterion_priorities)
         
-        # 새로운 OptionVote 생성
-        new_option_vote = OptionVote(
-            option_id=option_id,
-            created_by=user_id
-        )
-        self.vote_repo.create_option_vote(new_option_vote)
-        
-        # 새로운 CriterionPriority 목록 생성 (순서대로 priority_rank 부여: 인덱스 + 1)
-        new_criterion_priorities = []
         now = datetime.now(timezone.utc)
-        for index, criterion_id in enumerate(criterion_ids, start=1):
-            priority = CriterionPriority(
-                criterion_id=criterion_id,
-                created_by=user_id,
-                priority_rank=index,
-                updated_at=now  # 업데이트 시간 기록
+        
+        with transaction(self.db):
+            # 기존 OptionVote 삭제 (있는 경우)
+            if existing_option_vote:
+                self.vote_repo.delete_option_vote(existing_option_vote)
+            
+            # 기존 CriterionPriority 삭제 (있는 경우)
+            if existing_criterion_priorities:
+                self.vote_repo.delete_criterion_priorities(existing_criterion_priorities)
+            
+            # 새로운 OptionVote 생성
+            new_option_vote = OptionVote(
+                option_id=option_id,
+                created_by=user_id
             )
-            new_criterion_priorities.append(priority)
-        
-        self.vote_repo.create_criterion_priorities(new_criterion_priorities)
-        
-        # 트랜잭션 커밋
-        self.db.commit()
+            self.vote_repo.create_option_vote(new_option_vote)
+            
+            # 새로운 CriterionPriority 목록 생성 (순서대로 priority_rank 부여: 인덱스 + 1)
+            new_criterion_priorities = []
+            for index, criterion_id in enumerate(criterion_ids, start=1):
+                priority = CriterionPriority(
+                    criterion_id=criterion_id,
+                    created_by=user_id,
+                    priority_rank=index,
+                    updated_at=now  # 업데이트 시간 기록
+                )
+                new_criterion_priorities.append(priority)
+            
+            self.vote_repo.create_criterion_priorities(new_criterion_priorities)
         
         # 응답 반환 (기본 투표 정보만)
         return VoteResponse(

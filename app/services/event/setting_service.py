@@ -16,6 +16,7 @@ from app.schemas.event import (
     CriterionInfo,
 )
 from app.exceptions import NotFoundError, ValidationError
+from app.utils.transaction import transaction
 
 if TYPE_CHECKING:
     from app.schemas.event import (
@@ -136,8 +137,8 @@ class EventSettingService(EventBaseService):
             event.membership_is_auto_approved = request.membership_is_auto_approved
         
         # 이벤트 업데이트
-        result = self.repos.event.update_event(event)
-        self.db.commit()
+        with transaction(self.db):
+            result = self.repos.event.update_event(event)
         return result
 
     def _update_options(
@@ -288,11 +289,10 @@ class EventSettingService(EventBaseService):
             )
 
         # 4. 상태 변경
-        event.event_status = new_status
-        event.updated_at = datetime.now(timezone.utc)
-        
-        result = self.repos.event.update_event(event)
-        self.db.commit()
+        with transaction(self.db):
+            event.event_status = new_status
+            event.updated_at = datetime.now(timezone.utc)
+            result = self.repos.event.update_event(event)
 
         return EventStatusUpdateResponse(
             id=result.id,

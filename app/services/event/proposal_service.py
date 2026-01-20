@@ -33,6 +33,7 @@ from app.exceptions import (
     ValidationError,
     ConflictError,
 )
+from app.utils.transaction import transaction
 
 
 class ProposalService(EventBaseService):
@@ -79,11 +80,10 @@ class ProposalService(EventBaseService):
             created_by=user_id,
             proposal_status=ProposalStatusType.PENDING,
         )
-        created_proposal = self.repos.proposal.create_assumption_proposal(proposal)
-        self.db.commit()
-        
-        # 6. votes 관계를 로드하기 위해 refresh (재조회 대신)
-        self.db.refresh(created_proposal, ['votes'])
+        with transaction(self.db):
+            created_proposal = self.repos.proposal.create_assumption_proposal(proposal)
+            # votes 관계를 로드하기 위해 refresh (재조회 대신)
+            self.db.refresh(created_proposal, ['votes'])
         vote_count = len(created_proposal.votes) if created_proposal.votes else 0
         has_voted = False  # 새로 생성된 제안이므로 투표 없음
 
@@ -121,20 +121,23 @@ class ProposalService(EventBaseService):
         # 3. 중복 투표 체크
         self._check_duplicate_vote(proposal_id, user_id)
 
-        # 4. 투표 생성
+        # 4. 투표 생성 및 자동 승인 체크
         vote = AssumptionProposalVote(
             assumption_proposal_id=proposal_id,
             created_by=user_id,
         )
-        created_vote = self.repos.proposal.create_assumption_proposal_vote(vote)
-        self.db.commit()
-
-        # 5. votes 관계를 로드하기 위해 refresh (재조회 대신)
+        with transaction(self.db):
+            created_vote = self.repos.proposal.create_assumption_proposal_vote(vote)
+            # votes 관계를 로드하기 위해 refresh (재조회 대신)
+            self.db.refresh(proposal, ['votes'])
+            vote_count = len(proposal.votes) if proposal.votes else 0
+            
+            # 자동 승인 로직 체크 (PENDING 상태인 proposal에만)
+            self._check_and_auto_approve_assumption_proposal(proposal, event)
+        
+        # refresh 후 vote_count 다시 계산 (자동 승인 후 vote_count 변경 가능)
         self.db.refresh(proposal, ['votes'])
         vote_count = len(proposal.votes) if proposal.votes else 0
-
-        # 6. 자동 승인 로직 체크 (PENDING 상태인 proposal에만)
-        self._check_and_auto_approve_assumption_proposal(proposal, event)
 
         return AssumptionProposalVoteResponse(
             message="Vote created successfully",
@@ -164,16 +167,19 @@ class ProposalService(EventBaseService):
         # 3. 투표 존재 및 소유권 검증
         vote = self._get_user_vote_or_raise(proposal_id, user_id)
 
-        # 4. 투표 삭제
-        self.repos.proposal.delete_assumption_proposal_vote(vote)
-        self.db.commit()
-
-        # 5. votes 관계를 로드하기 위해 refresh (재조회 대신)
+        # 4. 투표 삭제 및 자동 승인 재체크
+        with transaction(self.db):
+            self.repos.proposal.delete_assumption_proposal_vote(vote)
+            # votes 관계를 로드하기 위해 refresh (재조회 대신)
+            self.db.refresh(proposal, ['votes'])
+            vote_count = len(proposal.votes) if proposal.votes else 0
+            
+            # 자동 승인 로직 재체크 (투표 수 감소 시, PENDING 상태인 proposal에만)
+            self._check_and_auto_approve_assumption_proposal(proposal, event)
+        
+        # refresh 후 vote_count 다시 계산
         self.db.refresh(proposal, ['votes'])
         vote_count = len(proposal.votes) if proposal.votes else 0
-
-        # 6. 자동 승인 로직 재체크 (투표 수 감소 시, PENDING 상태인 proposal에만)
-        self._check_and_auto_approve_assumption_proposal(proposal, event)
 
         return AssumptionProposalVoteResponse(
             message="Vote deleted successfully",
@@ -314,7 +320,7 @@ class ProposalService(EventBaseService):
                 self.db.refresh(approved_proposal, ['votes', 'assumption'])
                 # 자동 승인 시 즉시 적용
                 self._apply_assumption_proposal(approved_proposal, event)
-                self.db.commit()
+                # commit은 외부 트랜잭션 매니저가 처리
 
     def _apply_assumption_proposal(
         self, proposal: AssumptionProposal, event: Event
@@ -399,11 +405,10 @@ class ProposalService(EventBaseService):
             created_by=user_id,
             proposal_status=ProposalStatusType.PENDING,
         )
-        created_proposal = self.repos.proposal.create_criteria_proposal(proposal)
-        self.db.commit()
-        
-        # 6. votes 관계를 로드하기 위해 refresh (재조회 대신)
-        self.db.refresh(created_proposal, ['votes'])
+        with transaction(self.db):
+            created_proposal = self.repos.proposal.create_criteria_proposal(proposal)
+            # votes 관계를 로드하기 위해 refresh (재조회 대신)
+            self.db.refresh(created_proposal, ['votes'])
         vote_count = len(created_proposal.votes) if created_proposal.votes else 0
         has_voted = False  # 새로 생성된 제안이므로 투표 없음
 
@@ -441,20 +446,23 @@ class ProposalService(EventBaseService):
         # 3. 중복 투표 체크
         self._check_duplicate_criteria_vote(proposal_id, user_id)
 
-        # 4. 투표 생성
+        # 4. 투표 생성 및 자동 승인 체크
         vote = CriterionProposalVote(
             criterion_proposal_id=proposal_id,
             created_by=user_id,
         )
-        created_vote = self.repos.proposal.create_criteria_proposal_vote(vote)
-        self.db.commit()
-
-        # 5. votes 관계를 로드하기 위해 refresh (재조회 대신)
+        with transaction(self.db):
+            created_vote = self.repos.proposal.create_criteria_proposal_vote(vote)
+            # votes 관계를 로드하기 위해 refresh (재조회 대신)
+            self.db.refresh(proposal, ['votes'])
+            vote_count = len(proposal.votes) if proposal.votes else 0
+            
+            # 자동 승인 로직 체크 (PENDING 상태인 proposal에만)
+            self._check_and_auto_approve_criteria_proposal(proposal, event)
+        
+        # refresh 후 vote_count 다시 계산
         self.db.refresh(proposal, ['votes'])
         vote_count = len(proposal.votes) if proposal.votes else 0
-
-        # 6. 자동 승인 로직 체크 (PENDING 상태인 proposal에만)
-        self._check_and_auto_approve_criteria_proposal(proposal, event)
 
         return CriteriaProposalVoteResponse(
             message="Vote created successfully",
@@ -484,16 +492,19 @@ class ProposalService(EventBaseService):
         # 3. 투표 존재 및 소유권 검증
         vote = self._get_user_criteria_vote_or_raise(proposal_id, user_id)
 
-        # 4. 투표 삭제
-        self.repos.proposal.delete_criteria_proposal_vote(vote)
-        self.db.commit()
-
-        # 5. votes 관계를 로드하기 위해 refresh (재조회 대신)
+        # 4. 투표 삭제 및 자동 승인 재체크
+        with transaction(self.db):
+            self.repos.proposal.delete_criteria_proposal_vote(vote)
+            # votes 관계를 로드하기 위해 refresh (재조회 대신)
+            self.db.refresh(proposal, ['votes'])
+            vote_count = len(proposal.votes) if proposal.votes else 0
+            
+            # 자동 승인 로직 재체크 (투표 수 감소 시, PENDING 상태인 proposal에만)
+            self._check_and_auto_approve_criteria_proposal(proposal, event)
+        
+        # refresh 후 vote_count 다시 계산
         self.db.refresh(proposal, ['votes'])
         vote_count = len(proposal.votes) if proposal.votes else 0
-
-        # 6. 자동 승인 로직 재체크 (투표 수 감소 시, PENDING 상태인 proposal에만)
-        self._check_and_auto_approve_criteria_proposal(proposal, event)
 
         return CriteriaProposalVoteResponse(
             message="Vote deleted successfully",
@@ -634,7 +645,7 @@ class ProposalService(EventBaseService):
                 self.db.refresh(approved_proposal, ['votes', 'criterion'])
                 # 자동 승인 시 즉시 적용
                 self._apply_criteria_proposal(approved_proposal, event)
-                self.db.commit()
+                # commit은 외부 트랜잭션 매니저가 처리
 
     def _apply_criteria_proposal(
         self, proposal: CriteriaProposal, event: Event
@@ -722,11 +733,10 @@ class ProposalService(EventBaseService):
             created_by=user_id,
             proposal_status=ProposalStatusType.PENDING,
         )
-        created_proposal = self.repos.proposal.create_conclusion_proposal(proposal)
-        self.db.commit()
-        
-        # 6. votes 관계를 로드하기 위해 refresh
-        self.db.refresh(created_proposal, ['votes'])
+        with transaction(self.db):
+            created_proposal = self.repos.proposal.create_conclusion_proposal(proposal)
+            # votes 관계를 로드하기 위해 refresh
+            self.db.refresh(created_proposal, ['votes'])
         vote_count = len(created_proposal.votes) if created_proposal.votes else 0
         has_voted = False  # 새로 생성된 제안이므로 투표 없음
 
@@ -761,20 +771,23 @@ class ProposalService(EventBaseService):
         # 3. 중복 투표 체크
         self._check_duplicate_conclusion_vote(proposal_id, user_id)
 
-        # 4. 투표 생성
+        # 4. 투표 생성 및 자동 승인 체크
         vote = ConclusionProposalVote(
             conclusion_proposal_id=proposal_id,
             created_by=user_id,
         )
-        created_vote = self.repos.proposal.create_conclusion_proposal_vote(vote)
-        self.db.commit()
-
-        # 5. votes 관계를 로드하기 위해 refresh
+        with transaction(self.db):
+            created_vote = self.repos.proposal.create_conclusion_proposal_vote(vote)
+            # votes 관계를 로드하기 위해 refresh
+            self.db.refresh(proposal, ['votes'])
+            vote_count = len(proposal.votes) if proposal.votes else 0
+            
+            # 자동 승인 로직 체크 (PENDING 상태인 proposal에만)
+            self._check_and_auto_approve_conclusion_proposal(proposal, event)
+        
+        # refresh 후 vote_count 다시 계산
         self.db.refresh(proposal, ['votes'])
         vote_count = len(proposal.votes) if proposal.votes else 0
-
-        # 6. 자동 승인 로직 체크 (PENDING 상태인 proposal에만)
-        self._check_and_auto_approve_conclusion_proposal(proposal, event)
 
         return ConclusionProposalVoteResponse(
             message="Vote created successfully",
@@ -804,16 +817,19 @@ class ProposalService(EventBaseService):
         # 3. 투표 존재 및 소유권 검증
         vote = self._get_user_conclusion_vote_or_raise(proposal_id, user_id)
 
-        # 4. 투표 삭제
-        self.repos.proposal.delete_conclusion_proposal_vote(vote)
-        self.db.commit()
-
-        # 5. votes 관계를 로드하기 위해 refresh
+        # 4. 투표 삭제 및 자동 승인 재체크
+        with transaction(self.db):
+            self.repos.proposal.delete_conclusion_proposal_vote(vote)
+            # votes 관계를 로드하기 위해 refresh
+            self.db.refresh(proposal, ['votes'])
+            vote_count = len(proposal.votes) if proposal.votes else 0
+            
+            # 자동 승인 로직 재체크 (투표 수 감소 시, PENDING 상태인 proposal에만)
+            self._check_and_auto_approve_conclusion_proposal(proposal, event)
+        
+        # refresh 후 vote_count 다시 계산
         self.db.refresh(proposal, ['votes'])
         vote_count = len(proposal.votes) if proposal.votes else 0
-
-        # 6. 자동 승인 로직 재체크 (투표 수 감소 시, PENDING 상태인 proposal에만)
-        self._check_and_auto_approve_conclusion_proposal(proposal, event)
 
         return ConclusionProposalVoteResponse(
             message="Vote deleted successfully",
@@ -925,7 +941,7 @@ class ProposalService(EventBaseService):
                 self.db.refresh(approved_proposal, ['votes', 'criterion'])
                 # 자동 승인 시 즉시 적용
                 self._apply_conclusion_proposal(approved_proposal, event)
-                self.db.commit()
+                # commit은 외부 트랜잭션 매니저가 처리
 
     def _apply_conclusion_proposal(
         self, proposal: ConclusionProposal, event: Event
@@ -988,20 +1004,19 @@ class ProposalService(EventBaseService):
             )
 
         # 3. 상태 변경
-        proposal.proposal_status = status
-        if status == ProposalStatusType.ACCEPTED:
-            proposal.accepted_at = datetime.now(timezone.utc)
-            # 제안 적용
-            self._apply_assumption_proposal(proposal, event)
-        else:
-            # REJECTED는 상태만 변경
-            pass
+        with transaction(self.db):
+            proposal.proposal_status = status
+            if status == ProposalStatusType.ACCEPTED:
+                proposal.accepted_at = datetime.now(timezone.utc)
+                # 제안 적용
+                self._apply_assumption_proposal(proposal, event)
+            else:
+                # REJECTED는 상태만 변경
+                pass
 
-        self.repos.proposal.update_assumption_proposal(proposal)
-        self.db.commit()
-
-        # 4. 응답 생성
-        self.db.refresh(proposal, ['votes'])
+            self.repos.proposal.update_assumption_proposal(proposal)
+            # 응답 생성을 위해 refresh
+            self.db.refresh(proposal, ['votes'])
         vote_count = len(proposal.votes) if proposal.votes else 0
         has_voted = any(vote.created_by == user_id for vote in (proposal.votes or []))
 
@@ -1062,20 +1077,19 @@ class ProposalService(EventBaseService):
             )
 
         # 3. 상태 변경
-        proposal.proposal_status = status
-        if status == ProposalStatusType.ACCEPTED:
-            proposal.accepted_at = datetime.now(timezone.utc)
-            # 제안 적용
-            self._apply_criteria_proposal(proposal, event)
-        else:
-            # REJECTED는 상태만 변경
-            pass
+        with transaction(self.db):
+            proposal.proposal_status = status
+            if status == ProposalStatusType.ACCEPTED:
+                proposal.accepted_at = datetime.now(timezone.utc)
+                # 제안 적용
+                self._apply_criteria_proposal(proposal, event)
+            else:
+                # REJECTED는 상태만 변경
+                pass
 
-        self.repos.proposal.update_criteria_proposal(proposal)
-        self.db.commit()
-
-        # 4. 응답 생성
-        self.db.refresh(proposal, ['votes'])
+            self.repos.proposal.update_criteria_proposal(proposal)
+            # 응답 생성을 위해 refresh
+            self.db.refresh(proposal, ['votes'])
         vote_count = len(proposal.votes) if proposal.votes else 0
         has_voted = any(vote.created_by == user_id for vote in (proposal.votes or []))
 
@@ -1138,20 +1152,19 @@ class ProposalService(EventBaseService):
             )
 
         # 3. 상태 변경
-        proposal.proposal_status = status
-        if status == ProposalStatusType.ACCEPTED:
-            proposal.accepted_at = datetime.now(timezone.utc)
-            # 제안 적용
-            self._apply_conclusion_proposal(proposal, event)
-        else:
-            # REJECTED는 상태만 변경
-            pass
+        with transaction(self.db):
+            proposal.proposal_status = status
+            if status == ProposalStatusType.ACCEPTED:
+                proposal.accepted_at = datetime.now(timezone.utc)
+                # 제안 적용
+                self._apply_conclusion_proposal(proposal, event)
+            else:
+                # REJECTED는 상태만 변경
+                pass
 
-        self.repos.proposal.update_conclusion_proposal(proposal)
-        self.db.commit()
-
-        # 4. 응답 생성
-        self.db.refresh(proposal, ['votes'])
+            self.repos.proposal.update_conclusion_proposal(proposal)
+            # 응답 생성을 위해 refresh
+            self.db.refresh(proposal, ['votes'])
         vote_count = len(proposal.votes) if proposal.votes else 0
         has_voted = any(vote.created_by == user_id for vote in (proposal.votes or []))
 
