@@ -10,6 +10,7 @@ from app.schemas.event.vote import (
     VoteResultResponse,
 )
 from app.dependencies.auth import get_current_user
+from app.dependencies.idempotency import get_idempotency_key
 from app.dependencies.services import get_vote_service
 
 
@@ -46,6 +47,7 @@ def create_or_update_vote(
     request: VoteCreateRequest,
     current_user: User = Depends(get_current_user),
     vote_service: VoteService = Depends(get_vote_service),
+    idempotency_key: str = Depends(get_idempotency_key),
 ) -> VoteResponse:
     """
     투표 생성/업데이트 API (upsert 패턴)
@@ -56,12 +58,14 @@ def create_or_update_vote(
       - 모든 기준이 해당 이벤트의 기준이어야 함
       - 중복 불가
       - 빈 리스트 불가
+    - Idempotency-Key 헤더 필수
     """
     return vote_service.create_or_update_vote(
         event_id=event_id,
         user_id=current_user.id,
         option_id=request.option_id,
-        criterion_ids=request.criterion_ids
+        criterion_ids=request.criterion_ids,
+        idempotency_key=idempotency_key
     )
 
 

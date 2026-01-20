@@ -17,6 +17,7 @@ from app.schemas.event import (
     MembershipListItemResponse,
 )
 from app.dependencies.auth import get_current_user
+from app.dependencies.idempotency import get_idempotency_key
 from app.dependencies.services import (
     get_event_service,
     get_membership_service,
@@ -74,16 +75,19 @@ def approve_membership(
     membership_id: UUID,
     current_user: User = Depends(get_current_user),
     membership_service: MembershipService = Depends(get_membership_service),
+    idempotency_key: str = Depends(get_idempotency_key),
 ) -> MembershipResponse:
     """
     특정 참가자 참가 승인 API (관리자용)
     - membership_status를 PENDING에서 ACCEPTED로 변경
     - max_membership 초과 시 에러
+    - Idempotency-Key 헤더 필수
     """
     membership = membership_service.approve_membership(
         event_id=event_id,
         membership_id=membership_id,
-        user_id=current_user.id
+        user_id=current_user.id,
+        idempotency_key=idempotency_key
     )
     return MembershipResponse(
         message="Membership approved successfully",
@@ -101,15 +105,18 @@ def reject_membership(
     membership_id: UUID,
     current_user: User = Depends(get_current_user),
     membership_service: MembershipService = Depends(get_membership_service),
+    idempotency_key: str = Depends(get_idempotency_key),
 ) -> MembershipResponse:
     """
     특정 참가자 참가 거부 API (관리자용)
     - membership_status를 PENDING에서 REJECTED로 변경
+    - Idempotency-Key 헤더 필수
     """
     membership = membership_service.reject_membership(
         event_id=event_id,
         membership_id=membership_id,
-        user_id=current_user.id
+        user_id=current_user.id,
+        idempotency_key=idempotency_key
     )
     return MembershipResponse(
         message="Membership rejected successfully",
