@@ -7,6 +7,7 @@ from app.repositories.content.comment import CommentRepository
 from app.dependencies.aggregate_repositories import EventAggregateRepositories
 from app.services.event.base import EventBaseService
 from app.exceptions import NotFoundError, ForbiddenError
+from app.utils.transaction import transaction
 
 
 class CommentService(EventBaseService):
@@ -81,11 +82,10 @@ class CommentService(EventBaseService):
             created_by=user_id
         )
         
-        result = self.comment_repo.create_comment(comment)
-        self.db.commit()
-        
-        # creator 관계 로드
-        self.db.refresh(result, ["creator"])
+        with transaction(self.db):
+            result = self.comment_repo.create_comment(comment)
+            # creator 관계 로드
+            self.db.refresh(result, ["creator"])
         
         return result
 
@@ -111,12 +111,11 @@ class CommentService(EventBaseService):
             )
         
         # 코멘트 수정
-        comment.content = content
-        result = self.comment_repo.update_comment(comment)
-        self.db.commit()
-        
-        # creator 관계 로드
-        self.db.refresh(result, ["creator"])
+        with transaction(self.db):
+            comment.content = content
+            result = self.comment_repo.update_comment(comment)
+            # creator 관계 로드
+            self.db.refresh(result, ["creator"])
         
         return result
 
@@ -141,8 +140,8 @@ class CommentService(EventBaseService):
             )
         
         # 코멘트 삭제
-        self.comment_repo.delete_comment(comment)
-        self.db.commit()
+        with transaction(self.db):
+            self.comment_repo.delete_comment(comment)
 
     def _validate_criterion_belongs_to_event(
         self,

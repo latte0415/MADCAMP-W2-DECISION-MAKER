@@ -33,16 +33,28 @@ from app.exceptions import (
     ValidationError,
     ConflictError,
 )
+from app.utils.transaction import transaction
+from app.services.idempotency_service import IdempotencyService
 
 
 class ProposalService(EventBaseService):
     """Proposal 관련 서비스"""
 
+    def __init__(
+        self,
+        db,
+        repos,
+        idempotency_service: IdempotencyService | None = None
+    ):
+        super().__init__(db, repos)
+        self.idempotency_service = idempotency_service
+
     def create_assumption_proposal(
         self,
         event_id: UUID,
         request: AssumptionProposalCreateRequest,
-        user_id: UUID
+        user_id: UUID,
+        idempotency_key: str | None = None
     ) -> AssumptionProposalResponse:
         """
         전제 제안 생성
@@ -50,56 +62,76 @@ class ProposalService(EventBaseService):
         - ACCEPTED 멤버십 필요
         - 중복 제안 체크 (PENDING 상태만)
         """
-        # 1. 이벤트 상태 검증 (IN_PROGRESS)
-        event = self._validate_event_in_progress(event_id, "create proposals")
+        def _execute_create() -> dict:
+            # 1. 이벤트 상태 검증 (IN_PROGRESS)
+            event = self._validate_event_in_progress(event_id, "create proposals")
 
-        # 2. 멤버십 검증 (ACCEPTED)
-        self._validate_membership_accepted(user_id, event_id, "create proposals")
+            # 2. 멤버십 검증 (ACCEPTED)
+            self._validate_membership_accepted(user_id, event_id, "create proposals")
 
-        # 3. proposal_category에 따른 필드 검증
-        self._validate_proposal_category_fields(request, event_id)
+            # 3. proposal_category에 따른 필드 검증
+            self._validate_proposal_category_fields(request, event_id)
 
-        # 4. 중복 제안 체크 (PENDING 상태만)
-        existing_proposal = self.repos.proposal.get_pending_assumption_proposal_by_user(
-            event_id, request.assumption_id, user_id
-        )
-        if existing_proposal:
-            raise ConflictError(
-                message="Duplicate proposal",
-                detail="You already have a pending proposal for this assumption"
+            # 4. 중복 제안 체크 (PENDING 상태만)
+            existing_proposal = self.repos.proposal.get_pending_assumption_proposal_by_user(
+                event_id, request.assumption_id, user_id
             )
+            if existing_proposal:
+                raise ConflictError(
+                    message="Duplicate proposal",
+                    detail="You already have a pending proposal for this assumption"
+                )
 
-        # 5. 제안 생성
-        proposal = AssumptionProposal(
-            event_id=event_id,
-            assumption_id=request.assumption_id,
-            proposal_category=request.proposal_category,
-            proposal_content=request.proposal_content,
-            reason=request.reason,
-            created_by=user_id,
-            proposal_status=ProposalStatusType.PENDING,
-        )
-        created_proposal = self.repos.proposal.create_assumption_proposal(proposal)
-        self.db.commit()
+            # 5. 제안 생성
+            proposal = AssumptionProposal(
+                event_id=event_id,
+                assumption_id=request.assumption_id,
+                proposal_category=request.proposal_category,
+                proposal_content=request.proposal_content,
+                reason=request.reason,
+                created_by=user_id,
+                proposal_status=ProposalStatusType.PENDING,
+            )
+            with transaction(self.db):
+                created_proposal = self.repos.proposal.create_assumption_proposal(proposal)
+                # votes 관계를 로드하기 위해 refresh (재조회 대신)
+                self.db.refresh(created_proposal, ['votes'])
+            vote_count = len(created_proposal.votes) if created_proposal.votes else 0
+            has_voted = False  # 새로 생성된 제안이므로 투표 없음
+
+            response = AssumptionProposalResponse(
+                id=created_proposal.id,
+                event_id=created_proposal.event_id,
+                assumption_id=created_proposal.assumption_id,
+                proposal_status=created_proposal.proposal_status,
+                proposal_category=created_proposal.proposal_category,
+                proposal_content=created_proposal.proposal_content,
+                reason=created_proposal.reason,
+                created_at=created_proposal.created_at,
+                created_by=created_proposal.created_by,
+                vote_count=vote_count,
+                has_voted=has_voted,
+            )
+            return response.model_dump()
         
-        # 6. votes 관계를 로드하기 위해 refresh (재조회 대신)
-        self.db.refresh(created_proposal, ['votes'])
-        vote_count = len(created_proposal.votes) if created_proposal.votes else 0
-        has_voted = False  # 새로 생성된 제안이므로 투표 없음
-
-        return AssumptionProposalResponse(
-            id=created_proposal.id,
-            event_id=created_proposal.event_id,
-            assumption_id=created_proposal.assumption_id,
-            proposal_status=created_proposal.proposal_status,
-            proposal_category=created_proposal.proposal_category,
-            proposal_content=created_proposal.proposal_content,
-            reason=created_proposal.reason,
-            created_at=created_proposal.created_at,
-            created_by=created_proposal.created_by,
-            vote_count=vote_count,
-            has_voted=has_voted,
-        )
+        # Idempotency 적용
+        if self.idempotency_service and idempotency_key:
+            method = "POST"
+            path = f"/events/{event_id}/assumption-proposals"
+            # mode='json'을 사용하여 Enum, UUID 등을 자동으로 직렬화 가능한 형태로 변환
+            body = request.model_dump(exclude_none=True, mode='json')
+            result = self.idempotency_service.run(
+                user_id=user_id,
+                key=idempotency_key,
+                method=method,
+                path=path,
+                body=body,
+                fn=_execute_create
+            )
+            return AssumptionProposalResponse(**result)
+        else:
+            result = _execute_create()
+            return AssumptionProposalResponse(**result)
 
     def create_assumption_proposal_vote(
         self,
@@ -121,20 +153,23 @@ class ProposalService(EventBaseService):
         # 3. 중복 투표 체크
         self._check_duplicate_vote(proposal_id, user_id)
 
-        # 4. 투표 생성
+        # 4. 투표 생성 및 자동 승인 체크
         vote = AssumptionProposalVote(
             assumption_proposal_id=proposal_id,
             created_by=user_id,
         )
-        created_vote = self.repos.proposal.create_assumption_proposal_vote(vote)
-        self.db.commit()
-
-        # 5. votes 관계를 로드하기 위해 refresh (재조회 대신)
+        with transaction(self.db):
+            created_vote = self.repos.proposal.create_assumption_proposal_vote(vote)
+            # votes 관계를 로드하기 위해 refresh (재조회 대신)
+            self.db.refresh(proposal, ['votes'])
+            vote_count = len(proposal.votes) if proposal.votes else 0
+            
+            # 자동 승인 로직 체크 (PENDING 상태인 proposal에만)
+            self._check_and_auto_approve_assumption_proposal(proposal, event)
+        
+        # refresh 후 vote_count 다시 계산 (자동 승인 후 vote_count 변경 가능)
         self.db.refresh(proposal, ['votes'])
         vote_count = len(proposal.votes) if proposal.votes else 0
-
-        # 6. 자동 승인 로직 체크 (PENDING 상태인 proposal에만)
-        self._check_and_auto_approve_assumption_proposal(proposal, event)
 
         return AssumptionProposalVoteResponse(
             message="Vote created successfully",
@@ -164,16 +199,19 @@ class ProposalService(EventBaseService):
         # 3. 투표 존재 및 소유권 검증
         vote = self._get_user_vote_or_raise(proposal_id, user_id)
 
-        # 4. 투표 삭제
-        self.repos.proposal.delete_assumption_proposal_vote(vote)
-        self.db.commit()
-
-        # 5. votes 관계를 로드하기 위해 refresh (재조회 대신)
+        # 4. 투표 삭제 및 자동 승인 재체크
+        with transaction(self.db):
+            self.repos.proposal.delete_assumption_proposal_vote(vote)
+            # votes 관계를 로드하기 위해 refresh (재조회 대신)
+            self.db.refresh(proposal, ['votes'])
+            vote_count = len(proposal.votes) if proposal.votes else 0
+            
+            # 자동 승인 로직 재체크 (투표 수 감소 시, PENDING 상태인 proposal에만)
+            self._check_and_auto_approve_assumption_proposal(proposal, event)
+        
+        # refresh 후 vote_count 다시 계산
         self.db.refresh(proposal, ['votes'])
         vote_count = len(proposal.votes) if proposal.votes else 0
-
-        # 6. 자동 승인 로직 재체크 (투표 수 감소 시, PENDING 상태인 proposal에만)
-        self._check_and_auto_approve_assumption_proposal(proposal, event)
 
         return AssumptionProposalVoteResponse(
             message="Vote deleted successfully",
@@ -314,7 +352,7 @@ class ProposalService(EventBaseService):
                 self.db.refresh(approved_proposal, ['votes', 'assumption'])
                 # 자동 승인 시 즉시 적용
                 self._apply_assumption_proposal(approved_proposal, event)
-                self.db.commit()
+                # commit은 외부 트랜잭션 매니저가 처리
 
     def _apply_assumption_proposal(
         self, proposal: AssumptionProposal, event: Event
@@ -362,7 +400,8 @@ class ProposalService(EventBaseService):
         self,
         event_id: UUID,
         request: CriteriaProposalCreateRequest,
-        user_id: UUID
+        user_id: UUID,
+        idempotency_key: str | None = None
     ) -> CriteriaProposalResponse:
         """
         기준 제안 생성
@@ -370,56 +409,75 @@ class ProposalService(EventBaseService):
         - ACCEPTED 멤버십 필요
         - 중복 제안 체크 (PENDING 상태만)
         """
-        # 1. 이벤트 상태 검증 (IN_PROGRESS)
-        event = self._validate_event_in_progress(event_id, "create proposals")
+        def _execute_create() -> dict:
+            # 1. 이벤트 상태 검증 (IN_PROGRESS)
+            event = self._validate_event_in_progress(event_id, "create proposals")
 
-        # 2. 멤버십 검증 (ACCEPTED)
-        self._validate_membership_accepted(user_id, event_id, "create proposals")
+            # 2. 멤버십 검증 (ACCEPTED)
+            self._validate_membership_accepted(user_id, event_id, "create proposals")
 
-        # 3. proposal_category에 따른 필드 검증
-        self._validate_criteria_proposal_category_fields(request, event_id)
+            # 3. proposal_category에 따른 필드 검증
+            self._validate_criteria_proposal_category_fields(request, event_id)
 
-        # 4. 중복 제안 체크 (PENDING 상태만)
-        existing_proposal = self.repos.proposal.get_pending_criteria_proposal_by_user(
-            event_id, request.criteria_id, user_id
-        )
-        if existing_proposal:
-            raise ConflictError(
-                message="Duplicate proposal",
-                detail="You already have a pending proposal for this criterion"
+            # 4. 중복 제안 체크 (PENDING 상태만)
+            existing_proposal = self.repos.proposal.get_pending_criteria_proposal_by_user(
+                event_id, request.criteria_id, user_id
             )
+            if existing_proposal:
+                raise ConflictError(
+                    message="Duplicate proposal",
+                    detail="You already have a pending proposal for this criterion"
+                )
 
-        # 5. 제안 생성
-        proposal = CriteriaProposal(
-            event_id=event_id,
-            criteria_id=request.criteria_id,
-            proposal_category=request.proposal_category,
-            proposal_content=request.proposal_content,
-            reason=request.reason,
-            created_by=user_id,
-            proposal_status=ProposalStatusType.PENDING,
-        )
-        created_proposal = self.repos.proposal.create_criteria_proposal(proposal)
-        self.db.commit()
+            # 5. 제안 생성
+            proposal = CriteriaProposal(
+                event_id=event_id,
+                criteria_id=request.criteria_id,
+                proposal_category=request.proposal_category,
+                proposal_content=request.proposal_content,
+                reason=request.reason,
+                created_by=user_id,
+                proposal_status=ProposalStatusType.PENDING,
+            )
+            with transaction(self.db):
+                created_proposal = self.repos.proposal.create_criteria_proposal(proposal)
+                # votes 관계를 로드하기 위해 refresh (재조회 대신)
+                self.db.refresh(created_proposal, ['votes'])
+            vote_count = len(created_proposal.votes) if created_proposal.votes else 0
+            has_voted = False  # 새로 생성된 제안이므로 투표 없음
+
+            response = CriteriaProposalResponse(
+                id=created_proposal.id,
+                event_id=created_proposal.event_id,
+                criteria_id=created_proposal.criteria_id,
+                proposal_status=created_proposal.proposal_status,
+                proposal_category=created_proposal.proposal_category,
+                proposal_content=created_proposal.proposal_content,
+                reason=created_proposal.reason,
+                created_at=created_proposal.created_at,
+                created_by=created_proposal.created_by,
+                vote_count=vote_count,
+                has_voted=has_voted,
+            )
+            return response.model_dump()
         
-        # 6. votes 관계를 로드하기 위해 refresh (재조회 대신)
-        self.db.refresh(created_proposal, ['votes'])
-        vote_count = len(created_proposal.votes) if created_proposal.votes else 0
-        has_voted = False  # 새로 생성된 제안이므로 투표 없음
-
-        return CriteriaProposalResponse(
-            id=created_proposal.id,
-            event_id=created_proposal.event_id,
-            criteria_id=created_proposal.criteria_id,
-            proposal_status=created_proposal.proposal_status,
-            proposal_category=created_proposal.proposal_category,
-            proposal_content=created_proposal.proposal_content,
-            reason=created_proposal.reason,
-            created_at=created_proposal.created_at,
-            created_by=created_proposal.created_by,
-            vote_count=vote_count,
-            has_voted=has_voted,
-        )
+        # Idempotency 적용
+        if self.idempotency_service and idempotency_key:
+            method = "POST"
+            path = f"/events/{event_id}/criteria-proposals"
+            body = request.model_dump(exclude_none=True, mode='json')
+            result = self.idempotency_service.run(
+                user_id=user_id,
+                key=idempotency_key,
+                method=method,
+                path=path,
+                body=body,
+                fn=_execute_create
+            )
+            return CriteriaProposalResponse(**result)
+        else:
+            result = _execute_create()
+            return CriteriaProposalResponse(**result)
 
     def create_criteria_proposal_vote(
         self,
@@ -441,20 +499,23 @@ class ProposalService(EventBaseService):
         # 3. 중복 투표 체크
         self._check_duplicate_criteria_vote(proposal_id, user_id)
 
-        # 4. 투표 생성
+        # 4. 투표 생성 및 자동 승인 체크
         vote = CriterionProposalVote(
             criterion_proposal_id=proposal_id,
             created_by=user_id,
         )
-        created_vote = self.repos.proposal.create_criteria_proposal_vote(vote)
-        self.db.commit()
-
-        # 5. votes 관계를 로드하기 위해 refresh (재조회 대신)
+        with transaction(self.db):
+            created_vote = self.repos.proposal.create_criteria_proposal_vote(vote)
+            # votes 관계를 로드하기 위해 refresh (재조회 대신)
+            self.db.refresh(proposal, ['votes'])
+            vote_count = len(proposal.votes) if proposal.votes else 0
+            
+            # 자동 승인 로직 체크 (PENDING 상태인 proposal에만)
+            self._check_and_auto_approve_criteria_proposal(proposal, event)
+        
+        # refresh 후 vote_count 다시 계산
         self.db.refresh(proposal, ['votes'])
         vote_count = len(proposal.votes) if proposal.votes else 0
-
-        # 6. 자동 승인 로직 체크 (PENDING 상태인 proposal에만)
-        self._check_and_auto_approve_criteria_proposal(proposal, event)
 
         return CriteriaProposalVoteResponse(
             message="Vote created successfully",
@@ -484,16 +545,19 @@ class ProposalService(EventBaseService):
         # 3. 투표 존재 및 소유권 검증
         vote = self._get_user_criteria_vote_or_raise(proposal_id, user_id)
 
-        # 4. 투표 삭제
-        self.repos.proposal.delete_criteria_proposal_vote(vote)
-        self.db.commit()
-
-        # 5. votes 관계를 로드하기 위해 refresh (재조회 대신)
+        # 4. 투표 삭제 및 자동 승인 재체크
+        with transaction(self.db):
+            self.repos.proposal.delete_criteria_proposal_vote(vote)
+            # votes 관계를 로드하기 위해 refresh (재조회 대신)
+            self.db.refresh(proposal, ['votes'])
+            vote_count = len(proposal.votes) if proposal.votes else 0
+            
+            # 자동 승인 로직 재체크 (투표 수 감소 시, PENDING 상태인 proposal에만)
+            self._check_and_auto_approve_criteria_proposal(proposal, event)
+        
+        # refresh 후 vote_count 다시 계산
         self.db.refresh(proposal, ['votes'])
         vote_count = len(proposal.votes) if proposal.votes else 0
-
-        # 6. 자동 승인 로직 재체크 (투표 수 감소 시, PENDING 상태인 proposal에만)
-        self._check_and_auto_approve_criteria_proposal(proposal, event)
 
         return CriteriaProposalVoteResponse(
             message="Vote deleted successfully",
@@ -634,7 +698,7 @@ class ProposalService(EventBaseService):
                 self.db.refresh(approved_proposal, ['votes', 'criterion'])
                 # 자동 승인 시 즉시 적용
                 self._apply_criteria_proposal(approved_proposal, event)
-                self.db.commit()
+                # commit은 외부 트랜잭션 매니저가 처리
 
     def _apply_criteria_proposal(
         self, proposal: CriteriaProposal, event: Event
@@ -683,7 +747,8 @@ class ProposalService(EventBaseService):
         event_id: UUID,
         criterion_id: UUID,
         request: ConclusionProposalCreateRequest,
-        user_id: UUID
+        user_id: UUID,
+        idempotency_key: str | None = None
     ) -> ConclusionProposalResponse:
         """
         결론 제안 생성
@@ -691,55 +756,74 @@ class ProposalService(EventBaseService):
         - ACCEPTED 멤버십 필요
         - 중복 제안 체크 (PENDING 상태만)
         """
-        # 1. 이벤트 상태 검증 (IN_PROGRESS)
-        event = self._validate_event_in_progress(event_id, "create proposals")
+        def _execute_create() -> dict:
+            # 1. 이벤트 상태 검증 (IN_PROGRESS)
+            event = self._validate_event_in_progress(event_id, "create proposals")
 
-        # 2. 멤버십 검증 (ACCEPTED)
-        self._validate_membership_accepted(user_id, event_id, "create proposals")
+            # 2. 멤버십 검증 (ACCEPTED)
+            self._validate_membership_accepted(user_id, event_id, "create proposals")
 
-        # 3. Criterion 존재 및 event_id 일치 검증
-        criterion = self.repos.criterion.get_by_id(criterion_id)
-        if not criterion or criterion.event_id != event_id:
-            raise NotFoundError(
-                message="Criterion not found",
-                detail=f"Criterion with id {criterion_id} not found for this event"
+            # 3. Criterion 존재 및 event_id 일치 검증
+            criterion = self.repos.criterion.get_by_id(criterion_id)
+            if not criterion or criterion.event_id != event_id:
+                raise NotFoundError(
+                    message="Criterion not found",
+                    detail=f"Criterion with id {criterion_id} not found for this event"
+                )
+
+            # 4. 중복 제안 체크 (PENDING 상태만)
+            existing_proposal = self.repos.proposal.get_pending_conclusion_proposal_by_user(
+                criterion_id, user_id
             )
+            if existing_proposal:
+                raise ConflictError(
+                    message="Duplicate proposal",
+                    detail="You already have a pending proposal for this criterion"
+                )
 
-        # 4. 중복 제안 체크 (PENDING 상태만)
-        existing_proposal = self.repos.proposal.get_pending_conclusion_proposal_by_user(
-            criterion_id, user_id
-        )
-        if existing_proposal:
-            raise ConflictError(
-                message="Duplicate proposal",
-                detail="You already have a pending proposal for this criterion"
+            # 5. 제안 생성
+            proposal = ConclusionProposal(
+                criterion_id=criterion_id,
+                proposal_content=request.proposal_content,
+                created_by=user_id,
+                proposal_status=ProposalStatusType.PENDING,
             )
+            with transaction(self.db):
+                created_proposal = self.repos.proposal.create_conclusion_proposal(proposal)
+                # votes 관계를 로드하기 위해 refresh
+                self.db.refresh(created_proposal, ['votes'])
+            vote_count = len(created_proposal.votes) if created_proposal.votes else 0
+            has_voted = False  # 새로 생성된 제안이므로 투표 없음
 
-        # 5. 제안 생성
-        proposal = ConclusionProposal(
-            criterion_id=criterion_id,
-            proposal_content=request.proposal_content,
-            created_by=user_id,
-            proposal_status=ProposalStatusType.PENDING,
-        )
-        created_proposal = self.repos.proposal.create_conclusion_proposal(proposal)
-        self.db.commit()
+            response = ConclusionProposalResponse(
+                id=created_proposal.id,
+                criterion_id=created_proposal.criterion_id,
+                proposal_status=created_proposal.proposal_status,
+                proposal_content=created_proposal.proposal_content,
+                created_at=created_proposal.created_at,
+                created_by=created_proposal.created_by,
+                vote_count=vote_count,
+                has_voted=has_voted,
+            )
+            return response.model_dump()
         
-        # 6. votes 관계를 로드하기 위해 refresh
-        self.db.refresh(created_proposal, ['votes'])
-        vote_count = len(created_proposal.votes) if created_proposal.votes else 0
-        has_voted = False  # 새로 생성된 제안이므로 투표 없음
-
-        return ConclusionProposalResponse(
-            id=created_proposal.id,
-            criterion_id=created_proposal.criterion_id,
-            proposal_status=created_proposal.proposal_status,
-            proposal_content=created_proposal.proposal_content,
-            created_at=created_proposal.created_at,
-            created_by=created_proposal.created_by,
-            vote_count=vote_count,
-            has_voted=has_voted,
-        )
+        # Idempotency 적용
+        if self.idempotency_service and idempotency_key:
+            method = "POST"
+            path = f"/events/{event_id}/criteria/{criterion_id}/conclusion-proposals"
+            body = request.model_dump(exclude_none=True, mode='json')
+            result = self.idempotency_service.run(
+                user_id=user_id,
+                key=idempotency_key,
+                method=method,
+                path=path,
+                body=body,
+                fn=_execute_create
+            )
+            return ConclusionProposalResponse(**result)
+        else:
+            result = _execute_create()
+            return ConclusionProposalResponse(**result)
 
     def create_conclusion_proposal_vote(
         self,
@@ -761,20 +845,23 @@ class ProposalService(EventBaseService):
         # 3. 중복 투표 체크
         self._check_duplicate_conclusion_vote(proposal_id, user_id)
 
-        # 4. 투표 생성
+        # 4. 투표 생성 및 자동 승인 체크
         vote = ConclusionProposalVote(
             conclusion_proposal_id=proposal_id,
             created_by=user_id,
         )
-        created_vote = self.repos.proposal.create_conclusion_proposal_vote(vote)
-        self.db.commit()
-
-        # 5. votes 관계를 로드하기 위해 refresh
+        with transaction(self.db):
+            created_vote = self.repos.proposal.create_conclusion_proposal_vote(vote)
+            # votes 관계를 로드하기 위해 refresh
+            self.db.refresh(proposal, ['votes'])
+            vote_count = len(proposal.votes) if proposal.votes else 0
+            
+            # 자동 승인 로직 체크 (PENDING 상태인 proposal에만)
+            self._check_and_auto_approve_conclusion_proposal(proposal, event)
+        
+        # refresh 후 vote_count 다시 계산
         self.db.refresh(proposal, ['votes'])
         vote_count = len(proposal.votes) if proposal.votes else 0
-
-        # 6. 자동 승인 로직 체크 (PENDING 상태인 proposal에만)
-        self._check_and_auto_approve_conclusion_proposal(proposal, event)
 
         return ConclusionProposalVoteResponse(
             message="Vote created successfully",
@@ -804,16 +891,19 @@ class ProposalService(EventBaseService):
         # 3. 투표 존재 및 소유권 검증
         vote = self._get_user_conclusion_vote_or_raise(proposal_id, user_id)
 
-        # 4. 투표 삭제
-        self.repos.proposal.delete_conclusion_proposal_vote(vote)
-        self.db.commit()
-
-        # 5. votes 관계를 로드하기 위해 refresh
+        # 4. 투표 삭제 및 자동 승인 재체크
+        with transaction(self.db):
+            self.repos.proposal.delete_conclusion_proposal_vote(vote)
+            # votes 관계를 로드하기 위해 refresh
+            self.db.refresh(proposal, ['votes'])
+            vote_count = len(proposal.votes) if proposal.votes else 0
+            
+            # 자동 승인 로직 재체크 (투표 수 감소 시, PENDING 상태인 proposal에만)
+            self._check_and_auto_approve_conclusion_proposal(proposal, event)
+        
+        # refresh 후 vote_count 다시 계산
         self.db.refresh(proposal, ['votes'])
         vote_count = len(proposal.votes) if proposal.votes else 0
-
-        # 6. 자동 승인 로직 재체크 (투표 수 감소 시, PENDING 상태인 proposal에만)
-        self._check_and_auto_approve_conclusion_proposal(proposal, event)
 
         return ConclusionProposalVoteResponse(
             message="Vote deleted successfully",
@@ -925,7 +1015,7 @@ class ProposalService(EventBaseService):
                 self.db.refresh(approved_proposal, ['votes', 'criterion'])
                 # 자동 승인 시 즉시 적용
                 self._apply_conclusion_proposal(approved_proposal, event)
-                self.db.commit()
+                # commit은 외부 트랜잭션 매니저가 처리
 
     def _apply_conclusion_proposal(
         self, proposal: ConclusionProposal, event: Event
@@ -950,7 +1040,8 @@ class ProposalService(EventBaseService):
         event_id: UUID,
         proposal_id: UUID,
         status: ProposalStatusType,
-        user_id: UUID
+        user_id: UUID,
+        idempotency_key: str | None = None
     ) -> AssumptionProposalResponse:
         """
         전제 제안 상태 변경 (관리자용)
@@ -958,73 +1049,113 @@ class ProposalService(EventBaseService):
         - PENDING 상태만 변경 가능
         - ACCEPTED 시 제안 적용
         """
-        # 1. 관리자 권한 확인
-        event = self.verify_admin(event_id, user_id)
+        def _execute_update() -> dict:
+            # 1. 관리자 권한 확인
+            event = self.verify_admin(event_id, user_id)
 
-        # 2. 제안 조회 및 검증
-        proposal = self.repos.proposal.get_assumption_proposal_by_id(proposal_id)
-        if not proposal:
-            raise NotFoundError(
-                message="Proposal not found",
-                detail=f"Assumption proposal with id {proposal_id} not found"
+            # 2. 제안 조회 및 검증 (존재 여부, event_id 확인)
+            proposal = self.repos.proposal.get_assumption_proposal_by_id(proposal_id)
+            if not proposal:
+                raise NotFoundError(
+                    message="Proposal not found",
+                    detail=f"Assumption proposal with id {proposal_id} not found"
+                )
+
+            if proposal.event_id != event_id:
+                raise NotFoundError(
+                    message="Proposal not found",
+                    detail="Proposal does not belong to this event"
+                )
+
+            if status not in (ProposalStatusType.ACCEPTED, ProposalStatusType.REJECTED):
+                raise ValidationError(
+                    message="Invalid status",
+                    detail="Status must be ACCEPTED or REJECTED"
+                )
+
+            # 3. 조건부 UPDATE로 상태 변경 (원자성 보장)
+            with transaction(self.db):
+                if status == ProposalStatusType.ACCEPTED:
+                    accepted_at = datetime.now(timezone.utc)
+                    updated_proposal = self.repos.proposal.approve_assumption_proposal_if_pending(
+                        proposal_id, accepted_at
+                    )
+                else:
+                    updated_proposal = self.repos.proposal.reject_assumption_proposal_if_pending(
+                        proposal_id
+                    )
+                
+                # 조건부 UPDATE 실패 (이미 처리됨)
+                if updated_proposal is None:
+                    # 현재 상태 확인
+                    self.db.refresh(proposal, ['votes'])
+                    if proposal.proposal_status == ProposalStatusType.ACCEPTED:
+                        raise ConflictError(
+                            message="Proposal already accepted",
+                            detail="This proposal has already been accepted"
+                        )
+                    elif proposal.proposal_status == ProposalStatusType.REJECTED:
+                        raise ConflictError(
+                            message="Proposal already rejected",
+                            detail="This proposal has already been rejected"
+                        )
+                    else:
+                        raise ConflictError(
+                            message="Proposal status changed",
+                            detail="Proposal status has changed and cannot be updated"
+                        )
+                
+                # 조건부 UPDATE 성공한 경우에만 후속 처리
+                proposal = updated_proposal
+                if status == ProposalStatusType.ACCEPTED:
+                    # 제안 적용
+                    self._apply_assumption_proposal(proposal, event)
+                
+                # 응답 생성을 위해 refresh
+                self.db.refresh(proposal, ['votes'])
+            vote_count = len(proposal.votes) if proposal.votes else 0
+            has_voted = any(vote.created_by == user_id for vote in (proposal.votes or []))
+
+            response = AssumptionProposalResponse(
+                id=proposal.id,
+                event_id=proposal.event_id,
+                assumption_id=proposal.assumption_id,
+                proposal_status=proposal.proposal_status,
+                proposal_category=proposal.proposal_category,
+                proposal_content=proposal.proposal_content,
+                reason=proposal.reason,
+                created_at=proposal.created_at,
+                created_by=proposal.created_by,
+                vote_count=vote_count,
+                has_voted=has_voted
             )
-
-        if proposal.event_id != event_id:
-            raise NotFoundError(
-                message="Proposal not found",
-                detail="Proposal does not belong to this event"
+            return response.model_dump()
+        
+        # Idempotency 적용
+        if self.idempotency_service and idempotency_key:
+            method = "PATCH"
+            path = f"/events/{event_id}/assumption-proposals/{proposal_id}/status"
+            body = {"status": status.value}
+            result = self.idempotency_service.run(
+                user_id=user_id,
+                key=idempotency_key,
+                method=method,
+                path=path,
+                body=body,
+                fn=_execute_update
             )
-
-        if proposal.proposal_status != ProposalStatusType.PENDING:
-            raise ValidationError(
-                message="Invalid proposal status",
-                detail="Only PENDING proposals can have their status changed"
-            )
-
-        if status not in (ProposalStatusType.ACCEPTED, ProposalStatusType.REJECTED):
-            raise ValidationError(
-                message="Invalid status",
-                detail="Status must be ACCEPTED or REJECTED"
-            )
-
-        # 3. 상태 변경
-        proposal.proposal_status = status
-        if status == ProposalStatusType.ACCEPTED:
-            proposal.accepted_at = datetime.now(timezone.utc)
-            # 제안 적용
-            self._apply_assumption_proposal(proposal, event)
+            return AssumptionProposalResponse(**result)
         else:
-            # REJECTED는 상태만 변경
-            pass
-
-        self.repos.proposal.update_assumption_proposal(proposal)
-        self.db.commit()
-
-        # 4. 응답 생성
-        self.db.refresh(proposal, ['votes'])
-        vote_count = len(proposal.votes) if proposal.votes else 0
-        has_voted = any(vote.created_by == user_id for vote in (proposal.votes or []))
-
-        return AssumptionProposalResponse(
-            id=proposal.id,
-            event_id=proposal.event_id,
-            assumption_id=proposal.assumption_id,
-            proposal_status=proposal.proposal_status,
-            proposal_category=proposal.proposal_category,
-            proposal_content=proposal.proposal_content,
-            reason=proposal.reason,
-            created_at=proposal.created_at,
-            created_by=proposal.created_by,
-            vote_count=vote_count,
-            has_voted=has_voted
-        )
+            result = _execute_update()
+            return AssumptionProposalResponse(**result)
 
     def update_criteria_proposal_status(
         self,
         event_id: UUID,
         proposal_id: UUID,
         status: ProposalStatusType,
-        user_id: UUID
+        user_id: UUID,
+        idempotency_key: str | None = None
     ) -> CriteriaProposalResponse:
         """
         기준 제안 상태 변경 (관리자용)
@@ -1032,73 +1163,113 @@ class ProposalService(EventBaseService):
         - PENDING 상태만 변경 가능
         - ACCEPTED 시 제안 적용
         """
-        # 1. 관리자 권한 확인
-        event = self.verify_admin(event_id, user_id)
+        def _execute_update() -> dict:
+            # 1. 관리자 권한 확인
+            event = self.verify_admin(event_id, user_id)
 
-        # 2. 제안 조회 및 검증
-        proposal = self.repos.proposal.get_criteria_proposal_by_id(proposal_id)
-        if not proposal:
-            raise NotFoundError(
-                message="Proposal not found",
-                detail=f"Criteria proposal with id {proposal_id} not found"
+            # 2. 제안 조회 및 검증 (존재 여부, event_id 확인)
+            proposal = self.repos.proposal.get_criteria_proposal_by_id(proposal_id)
+            if not proposal:
+                raise NotFoundError(
+                    message="Proposal not found",
+                    detail=f"Criteria proposal with id {proposal_id} not found"
+                )
+
+            if proposal.event_id != event_id:
+                raise NotFoundError(
+                    message="Proposal not found",
+                    detail="Proposal does not belong to this event"
+                )
+
+            if status not in (ProposalStatusType.ACCEPTED, ProposalStatusType.REJECTED):
+                raise ValidationError(
+                    message="Invalid status",
+                    detail="Status must be ACCEPTED or REJECTED"
+                )
+
+            # 3. 조건부 UPDATE로 상태 변경 (원자성 보장)
+            with transaction(self.db):
+                if status == ProposalStatusType.ACCEPTED:
+                    accepted_at = datetime.now(timezone.utc)
+                    updated_proposal = self.repos.proposal.approve_criteria_proposal_if_pending(
+                        proposal_id, accepted_at
+                    )
+                else:
+                    updated_proposal = self.repos.proposal.reject_criteria_proposal_if_pending(
+                        proposal_id
+                    )
+                
+                # 조건부 UPDATE 실패 (이미 처리됨)
+                if updated_proposal is None:
+                    # 현재 상태 확인
+                    self.db.refresh(proposal, ['votes'])
+                    if proposal.proposal_status == ProposalStatusType.ACCEPTED:
+                        raise ConflictError(
+                            message="Proposal already accepted",
+                            detail="This proposal has already been accepted"
+                        )
+                    elif proposal.proposal_status == ProposalStatusType.REJECTED:
+                        raise ConflictError(
+                            message="Proposal already rejected",
+                            detail="This proposal has already been rejected"
+                        )
+                    else:
+                        raise ConflictError(
+                            message="Proposal status changed",
+                            detail="Proposal status has changed and cannot be updated"
+                        )
+                
+                # 조건부 UPDATE 성공한 경우에만 후속 처리
+                proposal = updated_proposal
+                if status == ProposalStatusType.ACCEPTED:
+                    # 제안 적용
+                    self._apply_criteria_proposal(proposal, event)
+                
+                # 응답 생성을 위해 refresh
+                self.db.refresh(proposal, ['votes'])
+            vote_count = len(proposal.votes) if proposal.votes else 0
+            has_voted = any(vote.created_by == user_id for vote in (proposal.votes or []))
+
+            response = CriteriaProposalResponse(
+                id=proposal.id,
+                event_id=proposal.event_id,
+                criteria_id=proposal.criteria_id,
+                proposal_status=proposal.proposal_status,
+                proposal_category=proposal.proposal_category,
+                proposal_content=proposal.proposal_content,
+                reason=proposal.reason,
+                created_at=proposal.created_at,
+                created_by=proposal.created_by,
+                vote_count=vote_count,
+                has_voted=has_voted
             )
-
-        if proposal.event_id != event_id:
-            raise NotFoundError(
-                message="Proposal not found",
-                detail="Proposal does not belong to this event"
+            return response.model_dump()
+        
+        # Idempotency 적용
+        if self.idempotency_service and idempotency_key:
+            method = "PATCH"
+            path = f"/events/{event_id}/criteria-proposals/{proposal_id}/status"
+            body = {"status": status.value}
+            result = self.idempotency_service.run(
+                user_id=user_id,
+                key=idempotency_key,
+                method=method,
+                path=path,
+                body=body,
+                fn=_execute_update
             )
-
-        if proposal.proposal_status != ProposalStatusType.PENDING:
-            raise ValidationError(
-                message="Invalid proposal status",
-                detail="Only PENDING proposals can have their status changed"
-            )
-
-        if status not in (ProposalStatusType.ACCEPTED, ProposalStatusType.REJECTED):
-            raise ValidationError(
-                message="Invalid status",
-                detail="Status must be ACCEPTED or REJECTED"
-            )
-
-        # 3. 상태 변경
-        proposal.proposal_status = status
-        if status == ProposalStatusType.ACCEPTED:
-            proposal.accepted_at = datetime.now(timezone.utc)
-            # 제안 적용
-            self._apply_criteria_proposal(proposal, event)
+            return CriteriaProposalResponse(**result)
         else:
-            # REJECTED는 상태만 변경
-            pass
-
-        self.repos.proposal.update_criteria_proposal(proposal)
-        self.db.commit()
-
-        # 4. 응답 생성
-        self.db.refresh(proposal, ['votes'])
-        vote_count = len(proposal.votes) if proposal.votes else 0
-        has_voted = any(vote.created_by == user_id for vote in (proposal.votes or []))
-
-        return CriteriaProposalResponse(
-            id=proposal.id,
-            event_id=proposal.event_id,
-            criteria_id=proposal.criteria_id,
-            proposal_status=proposal.proposal_status,
-            proposal_category=proposal.proposal_category,
-            proposal_content=proposal.proposal_content,
-            reason=proposal.reason,
-            created_at=proposal.created_at,
-            created_by=proposal.created_by,
-            vote_count=vote_count,
-            has_voted=has_voted
-        )
+            result = _execute_update()
+            return CriteriaProposalResponse(**result)
 
     def update_conclusion_proposal_status(
         self,
         event_id: UUID,
         proposal_id: UUID,
         status: ProposalStatusType,
-        user_id: UUID
+        user_id: UUID,
+        idempotency_key: str | None = None
     ) -> ConclusionProposalResponse:
         """
         결론 제안 상태 변경 (관리자용)
@@ -1106,62 +1277,101 @@ class ProposalService(EventBaseService):
         - PENDING 상태만 변경 가능
         - ACCEPTED 시 제안 적용
         """
-        # 1. 관리자 권한 확인
-        event = self.verify_admin(event_id, user_id)
+        def _execute_update() -> dict:
+            # 1. 관리자 권한 확인
+            event = self.verify_admin(event_id, user_id)
 
-        # 2. 제안 조회 및 검증
-        proposal = self.repos.proposal.get_conclusion_proposal_by_id(proposal_id)
-        if not proposal:
-            raise NotFoundError(
-                message="Proposal not found",
-                detail=f"Conclusion proposal with id {proposal_id} not found"
+            # 2. 제안 조회 및 검증 (존재 여부, event_id 확인)
+            proposal = self.repos.proposal.get_conclusion_proposal_by_id(proposal_id)
+            if not proposal:
+                raise NotFoundError(
+                    message="Proposal not found",
+                    detail=f"Conclusion proposal with id {proposal_id} not found"
+                )
+
+            # 제안이 속한 이벤트 확인 (criterion을 통해)
+            criterion = self.repos.criterion.get_by_id(proposal.criterion_id)
+            if not criterion or criterion.event_id != event_id:
+                raise NotFoundError(
+                    message="Proposal not found",
+                    detail="Proposal does not belong to this event"
+                )
+
+            if status not in (ProposalStatusType.ACCEPTED, ProposalStatusType.REJECTED):
+                raise ValidationError(
+                    message="Invalid status",
+                    detail="Status must be ACCEPTED or REJECTED"
+                )
+
+            # 3. 조건부 UPDATE로 상태 변경 (원자성 보장)
+            with transaction(self.db):
+                if status == ProposalStatusType.ACCEPTED:
+                    accepted_at = datetime.now(timezone.utc)
+                    updated_proposal = self.repos.proposal.approve_conclusion_proposal_if_pending(
+                        proposal_id, accepted_at
+                    )
+                else:
+                    updated_proposal = self.repos.proposal.reject_conclusion_proposal_if_pending(
+                        proposal_id
+                    )
+                
+                # 조건부 UPDATE 실패 (이미 처리됨)
+                if updated_proposal is None:
+                    # 현재 상태 확인
+                    self.db.refresh(proposal, ['votes'])
+                    if proposal.proposal_status == ProposalStatusType.ACCEPTED:
+                        raise ConflictError(
+                            message="Proposal already accepted",
+                            detail="This proposal has already been accepted"
+                        )
+                    elif proposal.proposal_status == ProposalStatusType.REJECTED:
+                        raise ConflictError(
+                            message="Proposal already rejected",
+                            detail="This proposal has already been rejected"
+                        )
+                    else:
+                        raise ConflictError(
+                            message="Proposal status changed",
+                            detail="Proposal status has changed and cannot be updated"
+                        )
+                
+                # 조건부 UPDATE 성공한 경우에만 후속 처리
+                proposal = updated_proposal
+                if status == ProposalStatusType.ACCEPTED:
+                    # 제안 적용
+                    self._apply_conclusion_proposal(proposal, event)
+                
+                # 응답 생성을 위해 refresh
+                self.db.refresh(proposal, ['votes'])
+            vote_count = len(proposal.votes) if proposal.votes else 0
+            has_voted = any(vote.created_by == user_id for vote in (proposal.votes or []))
+
+            response = ConclusionProposalResponse(
+                id=proposal.id,
+                criterion_id=proposal.criterion_id,
+                proposal_status=proposal.proposal_status,
+                proposal_content=proposal.proposal_content,
+                created_at=proposal.created_at,
+                created_by=proposal.created_by,
+                vote_count=vote_count,
+                has_voted=has_voted
             )
-
-        # 제안이 속한 이벤트 확인 (criterion을 통해)
-        criterion = self.repos.criterion.get_by_id(proposal.criterion_id)
-        if not criterion or criterion.event_id != event_id:
-            raise NotFoundError(
-                message="Proposal not found",
-                detail="Proposal does not belong to this event"
+            return response.model_dump()
+        
+        # Idempotency 적용
+        if self.idempotency_service and idempotency_key:
+            method = "PATCH"
+            path = f"/events/{event_id}/conclusion-proposals/{proposal_id}/status"
+            body = {"status": status.value}
+            result = self.idempotency_service.run(
+                user_id=user_id,
+                key=idempotency_key,
+                method=method,
+                path=path,
+                body=body,
+                fn=_execute_update
             )
-
-        if proposal.proposal_status != ProposalStatusType.PENDING:
-            raise ValidationError(
-                message="Invalid proposal status",
-                detail="Only PENDING proposals can have their status changed"
-            )
-
-        if status not in (ProposalStatusType.ACCEPTED, ProposalStatusType.REJECTED):
-            raise ValidationError(
-                message="Invalid status",
-                detail="Status must be ACCEPTED or REJECTED"
-            )
-
-        # 3. 상태 변경
-        proposal.proposal_status = status
-        if status == ProposalStatusType.ACCEPTED:
-            proposal.accepted_at = datetime.now(timezone.utc)
-            # 제안 적용
-            self._apply_conclusion_proposal(proposal, event)
+            return ConclusionProposalResponse(**result)
         else:
-            # REJECTED는 상태만 변경
-            pass
-
-        self.repos.proposal.update_conclusion_proposal(proposal)
-        self.db.commit()
-
-        # 4. 응답 생성
-        self.db.refresh(proposal, ['votes'])
-        vote_count = len(proposal.votes) if proposal.votes else 0
-        has_voted = any(vote.created_by == user_id for vote in (proposal.votes or []))
-
-        return ConclusionProposalResponse(
-            id=proposal.id,
-            criterion_id=proposal.criterion_id,
-            proposal_status=proposal.proposal_status,
-            proposal_content=proposal.proposal_content,
-            created_at=proposal.created_at,
-            created_by=proposal.created_by,
-            vote_count=vote_count,
-            has_voted=has_voted
-        )
+            result = _execute_update()
+            return ConclusionProposalResponse(**result)
