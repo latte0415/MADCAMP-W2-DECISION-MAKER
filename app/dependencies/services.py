@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 from app.db import get_db
 from app.services.event import EventService
 from app.services.event.membership_service import MembershipService
-from app.services.event.proposal_service import ProposalService
+from app.services.event.proposal import ProposalService
 from app.services.event.comment_service import CommentService
 from app.services.event.setting_service import EventSettingService
 from app.services.event.vote_service import VoteService

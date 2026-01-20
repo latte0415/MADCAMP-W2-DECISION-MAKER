@@ -2,7 +2,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, status
 
 from app.models import User
-from app.services.event.proposal_service import ProposalService
+from app.services.event.proposal import ProposalService
 from app.services.event import EventService
 from app.schemas.event import (
     EventDetailResponse,
