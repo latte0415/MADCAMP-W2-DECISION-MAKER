@@ -83,6 +83,13 @@
 | PATCH | `/v1/events/{event_id}/comments/{comment_id}` | 코멘트 수정 | 🔐 |
 | DELETE | `/v1/events/{event_id}/comments/{comment_id}` | 코멘트 삭제 | 🔐 |
 
+#### 투표 관련
+| Method | Endpoint | 설명 | 인증 |
+|--------|----------|------|------|
+| GET | `/v1/events/{event_id}/votes/me` | 본인 투표 내역 조회 | 🔐 |
+| POST | `/v1/events/{event_id}/votes` | 투표 생성/업데이트 | 🔐 |
+| GET | `/v1/events/{event_id}/votes/result` | 투표 결과 조회 | 🔐 |
+
 #### 이벤트 설정 관련 (관리자용)
 | Method | Endpoint | 설명 | 인증 |
 |--------|----------|------|------|
@@ -122,23 +129,23 @@
 
 ### 통계
 
-- **총 구현된 API**: 45개
+- **총 구현된 API**: 48개
   - 인증 API: 9개
-  - 이벤트 API: 34개
+  - 이벤트 API: 37개
     - 홈/참가: 1개
     - 생성: 3개
     - 참가/조회: 2개
     - 상세/제안: 10개
     - 제안 상태 변경: 3개
     - 코멘트: 5개
+    - 투표: 3개
     - 설정: 3개
     - 멤버십: 5개
     - 이벤트 상태 변경: 1개
   - 개발용 API: 여러 개 (별도 문서 참조)
   - 기타: 2개
 
-- **미구현 API**: 2개 (TODO 섹션 참조)
-  - 투표: 2개
+- **미구현 API**: 0개
 
 ---
 
@@ -852,16 +859,25 @@ Authorization: Bearer <access_token>
 **Response:** `200 OK`
 ```json
 {
-  "event": {
-    "id": "uuid",
-    "decision_subject": "의사결정 주제",
-    "event_status": "IN_PROGRESS"
-  },
-  "options": [...],
+  "id": "uuid",
+  "decision_subject": "의사결정 주제",
+  "event_status": "IN_PROGRESS",
+  "is_admin": false,
+  "options": [
+    {
+      "id": "uuid",
+      "content": "선택지 1"
+    }
+  ],
   "assumptions": [
     {
       "id": "uuid",
       "content": "전제 1",
+      "is_deleted": false,
+      "is_modified": false,
+      "original_content": null,
+      "modified_at": null,
+      "deleted_at": null,
       "proposals": [...]
     }
   ],
@@ -869,16 +885,28 @@ Authorization: Bearer <access_token>
     {
       "id": "uuid",
       "content": "기준 1",
+      "conclusion": null,
+      "is_deleted": false,
+      "is_modified": false,
+      "original_content": null,
+      "modified_at": null,
+      "deleted_at": null,
       "proposals": [...],
       "conclusion_proposals": [...]
     }
-  ]
+  ],
+  "assumption_creation_proposals": [...],
+  "criteria_creation_proposals": [...],
+  "current_participants_count": 10,
+  "voted_participants_count": 8
 }
 ```
 
 **참고:**
 - 각 제안에 대한 투표 정보 포함
 - ACCEPTED 멤버십만 조회 가능
+- `current_participants_count`: 현재 참가 인원 수 (ACCEPTED 멤버십 기준)
+- `voted_participants_count`: 투표 완료 인원 수 (최종 투표 완료 기준)
 
 ---
 
@@ -1404,6 +1432,159 @@ Authorization: Bearer <access_token>
 
 ---
 
+### GET /v1/events/{event_id}/votes/me
+
+본인 투표 내역 조회
+
+**인증:** Bearer Token 필수 (ACCEPTED 멤버십 필요)
+
+**Path Parameters:**
+- `event_id` (UUID): 이벤트 ID
+
+**Response:** `200 OK`
+```json
+{
+  "option_id": "uuid",
+  "criterion_order": ["uuid1", "uuid2", "uuid3"],
+  "created_at": "2024-01-01T00:00:00Z",
+  "updated_at": "2024-01-01T01:00:00Z",
+  "decision_subject": "의사결정 주제",
+  "options": [
+    {
+      "id": "uuid",
+      "content": "선택지 1"
+    }
+  ],
+  "criteria": [
+    {
+      "id": "uuid",
+      "content": "기준 1"
+    }
+  ]
+}
+```
+
+**참고:**
+- 투표하지 않은 경우 `option_id`가 `null`로 반환됨
+- `criterion_order`는 기준 ID 리스트 (순서대로, 0번째 = 1순위)
+
+---
+
+### POST /v1/events/{event_id}/votes
+
+투표 생성/업데이트 (upsert 패턴)
+
+**인증:** Bearer Token 필수 (ACCEPTED 멤버십 필요)
+
+**Path Parameters:**
+- `event_id` (UUID): 이벤트 ID
+
+**Request Body:**
+```json
+{
+  "option_id": "uuid",
+  "criterion_ids": ["uuid1", "uuid2", "uuid3"]
+}
+```
+
+**Validation:**
+- `option_id`: 해당 이벤트의 선택지여야 함
+- `criterion_ids`: 
+  - 모든 기준이 해당 이벤트의 기준이어야 함
+  - 중복 불가
+  - 빈 리스트 불가
+  - 모든 활성화된 기준이 포함되어야 함
+
+**Response:** `201 Created`
+```json
+{
+  "option_id": "uuid",
+  "criterion_order": ["uuid1", "uuid2", "uuid3"],
+  "created_at": "2024-01-01T00:00:00Z",
+  "updated_at": "2024-01-01T00:00:00Z"
+}
+```
+
+**에러:**
+- `400 Bad Request`: 
+  - 이벤트가 IN_PROGRESS 상태가 아님
+  - 잘못된 option_id 또는 criterion_ids
+  - 모든 활성화된 기준이 포함되지 않음
+- `403 Forbidden`: ACCEPTED 멤버십이 아님
+- `404 Not Found`: option 또는 criterion을 찾을 수 없음
+
+**참고:**
+- 이미 투표한 경우 기존 투표를 삭제하고 새로 생성 (업데이트)
+- IN_PROGRESS 상태에서만 투표 가능
+
+---
+
+### GET /v1/events/{event_id}/votes/result
+
+투표 결과 조회
+
+**인증:** Bearer Token 필수 (ACCEPTED 멤버십 필요)
+
+**Path Parameters:**
+- `event_id` (UUID): 이벤트 ID
+
+**Response:** `200 OK`
+```json
+{
+  "total_participants_count": 10,
+  "voted_participants_count": 8,
+  "option_vote_counts": [
+    {
+      "option_id": "uuid",
+      "option_content": "선택지 1",
+      "vote_count": 5
+    },
+    {
+      "option_id": "uuid",
+      "option_content": "선택지 2",
+      "vote_count": 3
+    }
+  ],
+  "first_priority_criteria": [
+    {
+      "criterion_id": "uuid",
+      "criterion_content": "기준 1",
+      "count": 6
+    },
+    {
+      "criterion_id": "uuid",
+      "criterion_content": "기준 2",
+      "count": 2
+    }
+  ],
+  "weighted_criteria": [
+    {
+      "criterion_id": "uuid",
+      "criterion_content": "기준 1",
+      "count": 15
+    },
+    {
+      "criterion_id": "uuid",
+      "criterion_content": "기준 2",
+      "count": 8
+    }
+  ]
+}
+```
+
+**에러:**
+- `400 Bad Request`: 이벤트가 FINISHED 상태가 아님
+- `403 Forbidden`: ACCEPTED 멤버십이 아님
+
+**참고:**
+- FINISHED 상태에서만 조회 가능
+- `total_participants_count`: 전체 참가 인원 (ACCEPTED 멤버십 기준)
+- `voted_participants_count`: 투표 참여 인원 (최종 투표 완료한 사용자 수)
+- `first_priority_criteria`: 1순위로 가장 많이 선택된 기준 (내림차순)
+- `weighted_criteria`: 우선순위별 가중치 점수 (1위=3점, 2위=2점, 3위=1점, 내림차순)
+
+---
+
 ### PATCH /v1/events/{event_id}/status
 
 이벤트 상태 변경 (관리자용)
@@ -1483,14 +1664,6 @@ Authorization: Bearer <access_token>
 ```
 
 ---
-
-## TODO (미구현 API)
-
-다음 API들은 아직 구현되지 않았습니다:
-
-### 투표
-- `GET /v1/events/{event_id}/votes/me` - 본인 투표 내역 조회
-- `POST /v1/events/{event_id}/votes` - 투표 생성/업데이트
 
 ---
 

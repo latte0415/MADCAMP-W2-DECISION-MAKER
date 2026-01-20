@@ -81,6 +81,16 @@ from app.schemas.event.comment import (
     CommentCreatorInfo,
 )
 
+# Vote schemas
+from app.schemas.event.vote import (
+    VoteCreateRequest,
+    VoteResponse,
+    VoteViewResponse,
+    VoteResultResponse,
+    OptionVoteCount,
+    CriterionRankInfo,
+)
+
 __all__ = [
     # Common
     "OptionInfo",
@@ -140,4 +150,11 @@ __all__ = [
     # Setting
     "EventStatusUpdateRequest",
     "EventStatusUpdateResponse",
+    # Vote
+    "VoteCreateRequest",
+    "VoteResponse",
+    "VoteViewResponse",
+    "VoteResultResponse",
+    "OptionVoteCount",
+    "CriterionRankInfo",
 ]
