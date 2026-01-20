@@ -318,6 +318,79 @@ class EventSettingAPITester(BaseAPITester):
             self.print_result(False, str(e))
             return False
     
+    def test_event_memberships_get(self) -> bool:
+        """GET /v1/events/{event_id}/memberships - 멤버십 목록 조회"""
+        self.print_test("멤버십 목록 조회")
+        
+        if not self.event_id:
+            self.setup_test_event()
+        
+        # user가 이벤트에 입장
+        self.join_event()
+        
+        response = requests.get(
+            f"{self.base_url}/v1/events/{self.event_id}/memberships",
+            headers=self.admin_headers
+        )
+        
+        try:
+            data = self.assert_response(
+                response,
+                200,
+                required_fields=[]
+            )
+            
+            # 응답이 리스트인지 확인
+            assert isinstance(data, list), "응답은 리스트여야 합니다"
+            
+            # 최소 1개 이상의 멤버십이 있어야 함 (관리자 + user)
+            assert len(data) >= 1, "최소 1개 이상의 멤버십이 있어야 합니다"
+            
+            # 각 멤버십 항목 검증
+            for membership in data:
+                required_fields = [
+                    "user_id", "membership_id", "name", "email", "status",
+                    "created_at", "joined_at", "is_me", "is_admin"
+                ]
+                for field in required_fields:
+                    assert field in membership, f"필드 '{field}'가 누락되었습니다"
+                
+                # 타입 검증
+                assert isinstance(membership["user_id"], str), "user_id는 문자열이어야 합니다"
+                assert isinstance(membership["membership_id"], str), "membership_id는 문자열이어야 합니다"
+                assert membership["name"] is None or isinstance(membership["name"], str), "name은 None이거나 문자열이어야 합니다"
+                assert membership["email"] is None or isinstance(membership["email"], str), "email은 None이거나 문자열이어야 합니다"
+                assert membership["status"] in ["PENDING", "ACCEPTED", "REJECTED"], "status는 유효한 값이어야 합니다"
+                assert isinstance(membership["is_me"], bool), "is_me는 불리언이어야 합니다"
+                assert isinstance(membership["is_admin"], bool), "is_admin은 불리언이어야 합니다"
+            
+            self.print_result(True, f"멤버십 목록 조회 성공: {len(data)}개")
+            return True
+        except Exception as e:
+            self.print_result(False, str(e))
+            return False
+    
+    def test_event_memberships_get_error_not_admin(self) -> bool:
+        """GET /v1/events/{event_id}/memberships - 관리자 아님 에러"""
+        self.print_test("멤버십 목록 조회 - 관리자 아님 에러")
+        
+        if not self.event_id:
+            self.setup_test_event()
+        
+        # user로 조회 시도
+        response = requests.get(
+            f"{self.base_url}/v1/events/{self.event_id}/memberships",
+            headers=self.user_headers
+        )
+        
+        try:
+            self.assert_error_response(response, 403, expected_message_contains="관리자")
+            self.print_result(True, "관리자 아님 에러 확인 성공")
+            return True
+        except Exception as e:
+            self.print_result(False, str(e))
+            return False
+    
     def run_all_tests(self) -> dict:
         """모든 이벤트 설정 API 테스트 실행"""
         results = {}
@@ -334,6 +407,7 @@ class EventSettingAPITester(BaseAPITester):
         results["get"] = safe_run("test_event_setting_get", self.test_event_setting_get)
         results["update"] = safe_run("test_event_setting_update", self.test_event_setting_update)
         results["status_update"] = safe_run("test_event_status_update", self.test_event_status_update)
+        results["memberships_get"] = safe_run("test_event_memberships_get", self.test_event_memberships_get)
         
         # 에러 케이스
         results["get_error_not_admin"] = safe_run("test_event_setting_get_error_not_admin", self.test_event_setting_get_error_not_admin)
@@ -341,5 +415,6 @@ class EventSettingAPITester(BaseAPITester):
         results["status_update_error_not_admin"] = safe_run("test_event_status_update_error_not_admin", self.test_event_status_update_error_not_admin)
         results["update_error_not_started_modification"] = safe_run("test_event_update_error_not_started_modification", self.test_event_update_error_not_started_modification)
         results["update_error_finished_modification"] = safe_run("test_event_update_error_finished_modification", self.test_event_update_error_finished_modification)
+        results["memberships_get_error_not_admin"] = safe_run("test_event_memberships_get_error_not_admin", self.test_event_memberships_get_error_not_admin)
         
         return results

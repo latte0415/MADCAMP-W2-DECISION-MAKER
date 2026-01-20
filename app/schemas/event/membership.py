@@ -26,6 +26,8 @@ class MembershipListItemResponse(BaseModel):
     """멤버십 리스트 항목"""
     user_id: UUID
     membership_id: UUID
+    name: str | None  # 사용자 이름
+    email: str | None  # 사용자 이메일
     status: MembershipStatusType
     created_at: datetime
     joined_at: datetime | None

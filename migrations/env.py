@@ -24,6 +24,8 @@ from app.models import (  # noqa: F401,E402
     proposal,
     vote,
     comment,
+    idempotency,
+    outbox,
 )
 
 target_metadata = Base.metadata

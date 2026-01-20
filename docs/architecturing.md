@@ -457,8 +457,8 @@ app/dependencies/
 - `events`: 이벤트
 - `event_memberships`: 이벤트 멤버십
 - `options`: 선택지
-- `assumptions`: 전제
-- `criterion`: 기준
+- `assumptions`: 전제 (is_deleted, is_modified, original_content 필드 포함)
+- `criterion`: 기준 (is_deleted, is_modified, original_content 필드 포함)
 - `assumption_proposals`: 전제 제안
 - `criteria_proposals`: 기준 제안
 - `conclusion_proposals`: 결론 제안
@@ -468,12 +468,25 @@ app/dependencies/
 - `option_votes`: 선택지 투표
 - `criterion_priorities`: 기준 우선순위
 - `comments`: 코멘트
+- `idempotency_records`: 멱등성 레코드 (Idempotency-Key 관리)
 
 ### 제약 조건
 
 - **UNIQUE 제약**: 중복 방지 (예: `UNIQUE(proposal_id, created_by)`)
+  - 일부 proposal 테이블의 UNIQUE 제약은 주석 처리되어 있으며, 서비스 레이어에서 중복 체크 수행
 - **CHECK 제약**: 데이터 무결성 (예: `LENGTH(entrance_code) = 6`)
+  - `entrance_code` 형식 검증: `^[A-Z0-9]{6}$`
+  - 자동 승인 정책 관련 조건부 제약 (예: `assumption_is_auto_approved_by_votes = true → assumption_min_votes_required IS NOT NULL`)
+  - `conclusion_approval_threshold_percent` 범위 검증 (1-100)
 - **외래 키**: 참조 무결성
+- **인덱스**: 성능 최적화를 위한 인덱스 (예: `idx_assumptions_event_id`, `idx_assumptions_created_by`)
+
+### 주요 모델 필드 추가 사항
+
+- **assumptions/criterion 테이블**:
+  - `is_deleted`: 삭제 제안이 승인되어 실제로 삭제된 경우 true
+  - `is_modified`: 수정 제안이 승인되어 실제로 수정된 경우 true
+  - `original_content`: 수정 전 원본 내용 (수정된 경우에만 값이 있음)
 
 ---
 

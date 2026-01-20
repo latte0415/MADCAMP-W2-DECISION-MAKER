@@ -12,6 +12,7 @@ from app.models.vote import (
 )
 from app.models.comment import Comment
 from app.models.idempotency import IdempotencyRecord, IdempotencyStatusType
+from app.models.outbox import OutboxEvent, OutboxStatusType
 
 __all__ = [
     # Auth
@@ -30,4 +31,6 @@ __all__ = [
     "Comment",
     # Idempotency
     "IdempotencyRecord", "IdempotencyStatusType",
+    # Outbox
+    "OutboxEvent", "OutboxStatusType",
 ]

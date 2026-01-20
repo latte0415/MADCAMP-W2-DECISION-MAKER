@@ -100,10 +100,15 @@ stateDiagram-v2
 **제약 조건:**
 - UNIQUE: entrance_code - 각 event마다 고유한 접속 코드
 - CHECK: LENGTH(entrance_code) = 6 - 접속 코드는 정확히 6자리
+- CHECK: entrance_code ~ '^[A-Z0-9]{6}$' - 접속 코드 형식 검증
+- CHECK: max_membership > 0 - 최대 멤버 수는 1명 이상이어야 함
 - CHECK: assumption_is_auto_approved_by_votes = true → assumption_min_votes_required IS NOT NULL
 - CHECK: criteria_is_auto_approved_by_votes = true → criteria_min_votes_required IS NOT NULL
-- CHECK: entrance_code ~ '^[A-Z0-9]{6}$'
-- CHECK: max_membership > 0 - 최대 멤버 수는 1명 이상이어야 함
+- CHECK: conclusion_is_auto_approved_by_votes = true → conclusion_approval_threshold_percent IS NOT NULL
+- CHECK: conclusion_approval_threshold_percent IS NULL OR (conclusion_approval_threshold_percent >= 1 AND conclusion_approval_threshold_percent <= 100)
+
+**인덱스:**
+- idx_events_admin_id: admin_id
 
 
 **설명:**
@@ -127,6 +132,10 @@ stateDiagram-v2
 **제약 조건:**
 - UNIQUE: (user_id, event_id) - 한 사용자가 같은 event에 중복 가입 불가
 
+**인덱스:**
+- idx_event_memberships_event_id: event_id
+- idx_event_memberships_user_id: user_id
+
 **설명:**
 - event에 사용자 가입 관리
 - membership_status:
@@ -145,6 +154,10 @@ stateDiagram-v2
 - created_by: uuid, FK(users.id), NOT NULL
 - updated_at: timestamp with time zone, NULL
 
+**인덱스:**
+- idx_options_event_id: event_id
+- idx_options_created_by: created_by
+
 **제약 조건:**
 - admin만 추가/수정 가능 (서비스 레이어에서 체크)
 
@@ -157,25 +170,49 @@ stateDiagram-v2
 - id: uuid, PK
 - event_id: uuid, FK(events.id), NOT NULL
 - content: text, NOT NULL
+- is_deleted: boolean, NOT NULL, DEFAULT false
+- is_modified: boolean, NOT NULL, DEFAULT false
+- original_content: text, NULL
 - created_at: timestamp with time zone, NOT NULL
 - created_by: uuid, FK(users.id), NOT NULL
 - updated_at: timestamp with time zone, NULL
 - updated_by: uuid, FK(users.id), NULL
+
+**인덱스:**
+- idx_assumptions_event_id: event_id
+- idx_assumptions_created_by: created_by
+- idx_assumptions_updated_by: updated_by
+
+**설명:**
+- is_deleted: 삭제 제안이 승인되어 실제로 삭제된 경우 true
+- is_modified: 수정 제안이 승인되어 실제로 수정된 경우 true
+- original_content: 수정 전 원본 내용 (수정된 경우에만 값이 있음)
 
 ### criterion
 - id: uuid, PK
 - event_id: uuid, FK(events.id), NOT NULL
 - content: text, NOT NULL
 - conclusion: text, NULL
+- is_deleted: boolean, NOT NULL, DEFAULT false
+- is_modified: boolean, NOT NULL, DEFAULT false
+- original_content: text, NULL
 - created_at: timestamp with time zone, NOT NULL
 - created_by: uuid, FK(users.id), NOT NULL
 - updated_at: timestamp with time zone, NULL
 - updated_by: uuid, FK(users.id), NULL
 
+**인덱스:**
+- idx_criterion_event_id: event_id
+- idx_criterion_created_by: created_by
+- idx_criterion_updated_by: updated_by
+
 **설명:**
 - conclusion: 각 criterion에 대한 최종 승인된 결론/요약 텍스트
 - 각 criterion 별로 conclusion이 있어야 최종 결정에 합리적
 - conclusion은 conclusion_proposals에서 승인된 것을 반영
+- is_deleted: 삭제 제안이 승인되어 실제로 삭제된 경우 true
+- is_modified: 수정 제안이 승인되어 실제로 수정된 경우 true
+- original_content: 수정 전 원본 내용 (수정된 경우에만 값이 있음)
 
 ### assumption_proposals
 - id: uuid, PK
@@ -196,7 +233,12 @@ stateDiagram-v2
 - CHECK: proposal_category != 'CREATION' → assumption_id IS NOT NULL
 - CHECK: proposal_category = 'DELETION' → proposal_content IS NULL
 - CHECK: proposal_category != 'DELETION' → proposal_content IS NOT NULL
-- UNIQUE: (assumption_id, created_by) - 사용자당 동일 assumption에 대한 중복 제안 방지
+- **참고**: UNIQUE 제약 조건은 현재 주석 처리되어 있음. 중복 제안 방지는 서비스 레이어에서 처리됨
+
+**인덱스:**
+- idx_assumption_proposals_event_id: event_id
+- idx_assumption_proposals_assumption_id: assumption_id
+- idx_assumption_proposals_created_by: created_by
 
 **설명:**
 - accepted_at: 이 제안을 채택하기로 결정한 시점 (정책/합의)
@@ -225,7 +267,12 @@ stateDiagram-v2
 - CHECK: proposal_category != 'CREATION' → criteria_id IS NOT NULL
 - CHECK: proposal_category = 'DELETION' → proposal_content IS NULL
 - CHECK: proposal_category != 'DELETION' → proposal_content IS NOT NULL
-- UNIQUE: (criteria_id, created_by) - 사용자당 동일 criterion에 대한 중복 제안 방지 
+- **참고**: UNIQUE 제약 조건은 현재 주석 처리되어 있음. 중복 제안 방지는 서비스 레이어에서 처리됨
+
+**인덱스:**
+- idx_criteria_proposals_event_id: event_id
+- idx_criteria_proposals_criteria_id: criteria_id
+- idx_criteria_proposals_created_by: created_by
 
 **설명:**
 - accepted_at: 이 제안을 채택하기로 결정한 시점 (정책/합의)
@@ -244,6 +291,10 @@ stateDiagram-v2
 **제약 조건:**
 - UNIQUE: (assumption_proposal_id, created_by) - 중복 투표 방지
 
+**인덱스:**
+- idx_assumption_proposal_votes_proposal_id: assumption_proposal_id
+- idx_assumption_proposal_votes_created_by: created_by
+
 **설명:**
 - 동일 사용자가 동일 proposal에 중복 투표 불가
 - ON DELETE CASCADE: proposal 삭제 시 투표도 함께 삭제
@@ -257,6 +308,10 @@ stateDiagram-v2
 **제약 조건:**
 - UNIQUE: (criterion_proposal_id, created_by) - 중복 투표 방지
 
+**인덱스:**
+- idx_criterion_proposal_votes_proposal_id: criterion_proposal_id
+- idx_criterion_proposal_votes_created_by: created_by
+
 **설명:**
 - 동일 사용자가 동일 proposal에 중복 투표 불가
 - ON DELETE CASCADE: proposal 삭제 시 투표도 함께 삭제
@@ -269,6 +324,10 @@ stateDiagram-v2
 
 **제약 조건:**
 - UNIQUE: (option_id, created_by) - 중복 투표 방지
+
+**인덱스:**
+- idx_option_votes_option_id: option_id
+- idx_option_votes_created_by: created_by
 
 **설명:**
 - options에 대한 투표
@@ -286,7 +345,11 @@ stateDiagram-v2
 - applied_at: timestamp with time zone, NULL
 
 **제약 조건:**
-- UNIQUE: (criterion_id, created_by) - 사용자당 동일 criterion에 대한 중복 conclusion 제안 방지
+- **참고**: UNIQUE 제약 조건은 현재 주석 처리되어 있음. 중복 제안 방지는 서비스 레이어에서 처리됨
+
+**인덱스:**
+- idx_conclusion_proposals_criterion_id: criterion_id
+- idx_conclusion_proposals_created_by: created_by
 
 **설명:**
 - 각 criterion에 대한 conclusion 제안
@@ -303,6 +366,10 @@ stateDiagram-v2
 
 **제약 조건:**
 - UNIQUE: (conclusion_proposal_id, created_by) - 중복 투표 방지
+
+**인덱스:**
+- idx_conclusion_proposal_votes_proposal_id: conclusion_proposal_id
+- idx_conclusion_proposal_votes_created_by: created_by
 
 **설명:**
 - conclusion_proposals에 대한 투표
@@ -321,6 +388,10 @@ stateDiagram-v2
 - UNIQUE: (criterion_id, created_by) - 사용자당 각 criterion에 하나의 우선순위만 가능
 - CHECK: priority_rank > 0
 
+**인덱스:**
+- idx_criterion_priorities_criterion_id: criterion_id
+- idx_criterion_priorities_created_by: created_by
+
 **설명:**
 - 최종 투표 시 사용자가 각 criterion에 부여한 우선순위
 - 한 사용자는 각 criterion마다 하나의 우선순위만 부여 가능
@@ -334,6 +405,10 @@ stateDiagram-v2
 - created_at: timestamp with time zone, NOT NULL
 - created_by: uuid, FK(users.id), NOT NULL
 - updated_at: timestamp with time zone, NULL
+
+**인덱스:**
+- idx_comments_criterion_id: criterion_id
+- idx_comments_created_by: created_by
 
 **설명:**
 - criterion에 대한 댓글/의견

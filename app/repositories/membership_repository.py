@@ -56,11 +56,15 @@ class MembershipRepository:
     def get_all_by_event_id(self, event_id: UUID) -> List[EventMembership]:
         """이벤트의 모든 멤버십 목록 조회 (status와 무관하게 전부)"""
         from sqlalchemy import select
-        stmt = select(EventMembership).where(
-            EventMembership.event_id == event_id
-        ).order_by(EventMembership.created_at.desc())
+        from sqlalchemy.orm import joinedload
+        stmt = (
+            select(EventMembership)
+            .where(EventMembership.event_id == event_id)
+            .options(joinedload(EventMembership.user))
+            .order_by(EventMembership.created_at.desc())
+        )
         result = self.db.execute(stmt)
-        return list(result.scalars().all())
+        return list(result.unique().scalars().all())
 
     def approve_membership_if_pending(
         self, membership_id: UUID, joined_at: datetime

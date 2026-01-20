@@ -35,6 +35,7 @@ from app.exceptions import (
 )
 from app.utils.transaction import transaction
 from app.services.idempotency_service import IdempotencyService
+from app.repositories.outbox_repository import OutboxRepository
 
 
 class ProposalService(EventBaseService):
@@ -44,10 +45,12 @@ class ProposalService(EventBaseService):
         self,
         db,
         repos,
-        idempotency_service: IdempotencyService | None = None
+        idempotency_service: IdempotencyService | None = None,
+        outbox_repo: OutboxRepository | None = None
     ):
         super().__init__(db, repos)
         self.idempotency_service = idempotency_service
+        self.outbox_repo = outbox_repo
 
     def create_assumption_proposal(
         self,
@@ -352,6 +355,18 @@ class ProposalService(EventBaseService):
                 self.db.refresh(approved_proposal, ['votes', 'assumption'])
                 # 자동 승인 시 즉시 적용
                 self._apply_assumption_proposal(approved_proposal, event)
+                
+                # Outbox 이벤트 추가 (트랜잭션 내부)
+                if self.outbox_repo:
+                    self.outbox_repo.create_outbox_event(
+                        event_type="proposal.approved.v1",
+                        payload={
+                            "proposal_id": str(approved_proposal.id),
+                            "proposal_type": "assumption",
+                            "event_id": str(approved_proposal.event_id),
+                            "approved_by": None  # 자동 승인
+                        }
+                    )
                 # commit은 외부 트랜잭션 매니저가 처리
 
     def _apply_assumption_proposal(
@@ -698,6 +713,18 @@ class ProposalService(EventBaseService):
                 self.db.refresh(approved_proposal, ['votes', 'criterion'])
                 # 자동 승인 시 즉시 적용
                 self._apply_criteria_proposal(approved_proposal, event)
+                
+                # Outbox 이벤트 추가 (트랜잭션 내부)
+                if self.outbox_repo:
+                    self.outbox_repo.create_outbox_event(
+                        event_type="proposal.approved.v1",
+                        payload={
+                            "proposal_id": str(approved_proposal.id),
+                            "proposal_type": "criteria",
+                            "event_id": str(approved_proposal.event_id),
+                            "approved_by": None  # 자동 승인
+                        }
+                    )
                 # commit은 외부 트랜잭션 매니저가 처리
 
     def _apply_criteria_proposal(
@@ -1015,6 +1042,21 @@ class ProposalService(EventBaseService):
                 self.db.refresh(approved_proposal, ['votes', 'criterion'])
                 # 자동 승인 시 즉시 적용
                 self._apply_conclusion_proposal(approved_proposal, event)
+                
+                # Outbox 이벤트 추가 (트랜잭션 내부)
+                if self.outbox_repo:
+                    # event_id는 criterion을 통해 조회
+                    criterion = self.repos.criterion.get_by_id(approved_proposal.criterion_id)
+                    if criterion:
+                        self.outbox_repo.create_outbox_event(
+                            event_type="proposal.approved.v1",
+                            payload={
+                                "proposal_id": str(approved_proposal.id),
+                                "proposal_type": "conclusion",
+                                "event_id": str(criterion.event_id),
+                                "approved_by": None  # 자동 승인
+                            }
+                        )
                 # commit은 외부 트랜잭션 매니저가 처리
 
     def _apply_conclusion_proposal(
@@ -1110,6 +1152,30 @@ class ProposalService(EventBaseService):
                 if status == ProposalStatusType.ACCEPTED:
                     # 제안 적용
                     self._apply_assumption_proposal(proposal, event)
+                    
+                    # Outbox 이벤트 추가 (트랜잭션 내부)
+                    if self.outbox_repo:
+                        self.outbox_repo.create_outbox_event(
+                            event_type="proposal.approved.v1",
+                            payload={
+                                "proposal_id": str(proposal.id),
+                                "proposal_type": "assumption",
+                                "event_id": str(event_id),
+                                "approved_by": str(user_id)
+                            }
+                        )
+                elif status == ProposalStatusType.REJECTED:
+                    # Outbox 이벤트 추가 (트랜잭션 내부)
+                    if self.outbox_repo:
+                        self.outbox_repo.create_outbox_event(
+                            event_type="proposal.rejected.v1",
+                            payload={
+                                "proposal_id": str(proposal.id),
+                                "proposal_type": "assumption",
+                                "event_id": str(event_id),
+                                "rejected_by": str(user_id)
+                            }
+                        )
                 
                 # 응답 생성을 위해 refresh
                 self.db.refresh(proposal, ['votes'])
@@ -1224,6 +1290,30 @@ class ProposalService(EventBaseService):
                 if status == ProposalStatusType.ACCEPTED:
                     # 제안 적용
                     self._apply_criteria_proposal(proposal, event)
+                    
+                    # Outbox 이벤트 추가 (트랜잭션 내부)
+                    if self.outbox_repo:
+                        self.outbox_repo.create_outbox_event(
+                            event_type="proposal.approved.v1",
+                            payload={
+                                "proposal_id": str(proposal.id),
+                                "proposal_type": "criteria",
+                                "event_id": str(event_id),
+                                "approved_by": str(user_id)
+                            }
+                        )
+                elif status == ProposalStatusType.REJECTED:
+                    # Outbox 이벤트 추가 (트랜잭션 내부)
+                    if self.outbox_repo:
+                        self.outbox_repo.create_outbox_event(
+                            event_type="proposal.rejected.v1",
+                            payload={
+                                "proposal_id": str(proposal.id),
+                                "proposal_type": "criteria",
+                                "event_id": str(event_id),
+                                "rejected_by": str(user_id)
+                            }
+                        )
                 
                 # 응답 생성을 위해 refresh
                 self.db.refresh(proposal, ['votes'])
@@ -1340,6 +1430,30 @@ class ProposalService(EventBaseService):
                 if status == ProposalStatusType.ACCEPTED:
                     # 제안 적용
                     self._apply_conclusion_proposal(proposal, event)
+                    
+                    # Outbox 이벤트 추가 (트랜잭션 내부)
+                    if self.outbox_repo:
+                        self.outbox_repo.create_outbox_event(
+                            event_type="proposal.approved.v1",
+                            payload={
+                                "proposal_id": str(proposal.id),
+                                "proposal_type": "conclusion",
+                                "event_id": str(event_id),
+                                "approved_by": str(user_id)
+                            }
+                        )
+                elif status == ProposalStatusType.REJECTED:
+                    # Outbox 이벤트 추가 (트랜잭션 내부)
+                    if self.outbox_repo:
+                        self.outbox_repo.create_outbox_event(
+                            event_type="proposal.rejected.v1",
+                            payload={
+                                "proposal_id": str(proposal.id),
+                                "proposal_type": "conclusion",
+                                "event_id": str(event_id),
+                                "rejected_by": str(user_id)
+                            }
+                        )
                 
                 # 응답 생성을 위해 refresh
                 self.db.refresh(proposal, ['votes'])

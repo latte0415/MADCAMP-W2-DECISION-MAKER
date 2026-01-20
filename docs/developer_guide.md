@@ -86,9 +86,13 @@ backend/
 │   │   ├── content/
 │   │   └── proposal/
 │   ├── models/               # ORM 모델
-│   │   ├── auth.py
-│   │   ├── event.py
-│   │   └── ...
+│   │   ├── auth.py          # 사용자, 인증 관련 모델
+│   │   ├── event.py         # 이벤트, 멤버십, 선택지 모델
+│   │   ├── content.py       # 전제, 기준 모델
+│   │   ├── proposal.py      # 제안 모델
+│   │   ├── vote.py          # 투표 모델
+│   │   ├── comment.py       # 코멘트 모델
+│   │   └── idempotency.py   # 멱등성 레코드 모델
 │   ├── schemas/              # Pydantic 스키마
 │   │   ├── auth.py
 │   │   └── event/
@@ -245,13 +249,21 @@ router.include_router(example.router)
 
 ```python
 # app/models/example.py
+import uuid
+from datetime import datetime
 from sqlalchemy.orm import Mapped, mapped_column
-from sqlalchemy import ForeignKey, Text
+from sqlalchemy import ForeignKey, Text, CheckConstraint, UniqueConstraint, Index
 from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy import func
 from app.db import Base
 
 class Example(Base):
     __tablename__ = "examples"
+    __table_args__ = (
+        UniqueConstraint("event_id", "name", name="uq_examples_event_name"),
+        CheckConstraint("LENGTH(name) > 0", name="ck_examples_name_length"),
+        Index("idx_examples_event_id", "event_id"),
+    )
     
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
@@ -266,6 +278,13 @@ class Example(Base):
         UUID(as_uuid=True),
         ForeignKey("users.id", ondelete="RESTRICT"),
         nullable=False,
+        index=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
     )
 ```
 
@@ -603,12 +622,27 @@ def create_example(self, ...):
 Repository에서 `joinedload` 사용:
 
 ```python
+from sqlalchemy.orm import joinedload
+
 stmt = (
     select(Event)
     .options(joinedload(Event.options))
     .where(Event.id == event_id)
 )
 ```
+
+### Q6: assumptions/criterion의 is_deleted, is_modified 필드는 언제 사용하나요?
+
+- `is_deleted`: 삭제 제안이 승인되어 실제로 삭제된 경우 true로 설정
+- `is_modified`: 수정 제안이 승인되어 실제로 수정된 경우 true로 설정
+- `original_content`: 수정 전 원본 내용을 저장 (수정된 경우에만 값이 있음)
+- 이 필드들은 제안 시스템에서 실제 변경사항을 추적하기 위해 사용됩니다.
+
+### Q7: Proposal 테이블의 UNIQUE 제약 조건이 주석 처리된 이유는?
+
+- CREATION의 경우 `assumption_id`/`criteria_id`가 NULL이므로 UNIQUE 제약이 제대로 작동하지 않습니다.
+- 따라서 중복 제안 방지는 서비스 레이어에서 처리합니다 (`get_pending_*_proposal_by_user` 메서드 사용).
+- MODIFICATION/DELETION의 경우도 서비스 레이어에서 중복 체크를 수행합니다.
 
 ---
 

@@ -1171,6 +1171,8 @@ function VoteButton({ eventId, voteData }: Props) {
   {
     "user_id": "uuid",
     "membership_id": "uuid",
+    "name": "사용자 이름",
+    "email": "user@example.com",
     "status": "ACCEPTED",
     "created_at": "2024-01-01T00:00:00Z",
     "joined_at": "2024-01-01T01:00:00Z",
