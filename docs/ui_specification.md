@@ -211,6 +211,15 @@
 #### Done
 - event에 대한 주제, 선택지, 전제, 기준, 각각에 대한 제안 조회하기
   - 제안: `GET /events/{event_id}`
+  - 출력:
+    - 기본 정보: id, decision_subject, event_status, is_admin
+    - options: List[{id, content}]
+    - assumptions: List[AssumptionWithProposals]
+    - criteria: List[CriterionWithProposals]
+    - assumption_creation_proposals: List[AssumptionProposalInfo]
+    - criteria_creation_proposals: List[CriteriaProposalInfo]
+    - **current_participants_count**: int (현재 ACCEPTED 상태인 참가 인원 수)
+    - **voted_participants_count**: int (최종 투표를 완료한 참가 인원 수, option_votes 테이블 기준)
 - 전제에 대한 제안 생성하기
   - 제안: `POST /events/{event_id}/assumption-proposals`
 - 전제에 대한 제안 투표 생성하기/삭제하기
@@ -234,8 +243,6 @@
   - 제안: `POST /events/{event_id}/criteria/{criterion_id}/comments` (생성)
   - 제안: `PATCH /events/{event_id}/comments/{comment_id}` (수정)
   - 제안: `DELETE /events/{event_id}/comments/{comment_id}` (삭제)
-
-#### To Do
 - (ADMIN) 제안 승인/기각하기
   - 제안: `PATCH /events/{event_id}/assumption-proposals/{proposal_id}/status` (전제 제안)
   - 제안: `PATCH /events/{event_id}/criteria-proposals/{proposal_id}/status` (기준 제안)
@@ -431,6 +438,31 @@
 
 - 특정 유저의 특정 이벤트에 대한 투표 내역 조회하기
   - 제안: `GET /events/{event_id}/votes/me`
+  - 정보 조회를 위해 주제, options, criterion 제공
 - 특정 유저가 특정 이벤트에 대한 투표 내역 생성/업데이트하기
   - 제안: `POST /events/{event_id}/votes` (생성)
   - 제안: `PUT /events/{event_id}/votes` 또는 `PATCH /events/{event_id}/votes` (업데이트)
+    - 입력: 
+        - options 중 1개의 id
+        - criterion의 id list
+
+## 추가 설계
+### API 설계
+#### Done
+- 투표 결과 조회
+  - 제안: `GET /events/{event_id}/votes/result`
+  - 입력: event_id (path parameter), 현재 사용자 정보는 JWT 토큰에서 추출
+  - 출력:
+    - **total_participants_count**: int (전체 참가 인원, ACCEPTED 멤버십 기준)
+    - **voted_participants_count**: int (투표 참여 인원, 최종 투표 완료한 사용자 수)
+    - **option_vote_counts**: List[{option_id: UUID, option_content: str, vote_count: int}] (옵션별 투표 수)
+    - **first_priority_criteria**: List[{criterion_id: UUID, criterion_content: str, count: int}] (1순위로 가장 많이 꼽힌 기준, 내림차순)
+    - **weighted_criteria**: List[{criterion_id: UUID, criterion_content: str, count: int}] (우선순위별 가중치 부여한 기준, 내림차순)
+      - 가중치: 1위=3점, 2위=2점, 3위=1점, 4위 이상=0점
+  - 로직:
+    - 이벤트 멤버십이 ACCEPTED 상태인 사용자만 조회 가능
+    - FINISHED 상태에서만 조회 가능 (그 외 상태일 경우 400 Bad Request)
+    - 옵션별 투표 수 집계 (option_votes 테이블 기준)
+    - 1순위로 선택된 기준 집계 (criterion_priorities 테이블에서 priority_rank=1인 것만)
+    - 우선순위별 가중치 점수 계산 (1위=3점, 2위=2점, 3위=1점)
+  - 사용 위치: Event (4-0-0)과 Event_Overview(3-1-0)에서 호출 예정

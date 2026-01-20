@@ -137,5 +137,8 @@ class EventDetailResponse(BaseModel):
     assumption_creation_proposals: List[AssumptionProposalInfo]
     criteria_creation_proposals: List[CriteriaProposalInfo]
 
+    current_participants_count: int
+    voted_participants_count: int
+
     class Config:
         from_attributes = True

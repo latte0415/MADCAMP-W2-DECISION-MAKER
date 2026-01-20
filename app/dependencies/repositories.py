@@ -9,6 +9,7 @@ from app.repositories.content.assumption import AssumptionRepository
 from app.repositories.content.criterion import CriterionRepository
 from app.repositories.content.comment import CommentRepository
 from app.repositories.membership_repository import MembershipRepository
+from app.repositories.vote_repository import VoteRepository
 
 
 # Aggregate 의존성
@@ -46,3 +47,8 @@ def get_membership_repository(db: Session = Depends(get_db)) -> MembershipReposi
 def get_comment_repository(db: Session = Depends(get_db)) -> CommentRepository:
     """CommentRepository 의존성 주입"""
     return CommentRepository(db)
+
+
+def get_vote_repository(db: Session = Depends(get_db)) -> VoteRepository:
+    """VoteRepository 의존성 주입"""
+    return VoteRepository(db)
