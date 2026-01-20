@@ -5,6 +5,7 @@
 ## 목차
 
 - [공통 정보](#공통-정보)
+- [Idempotency (멱등성)](#idempotency-멱등성)
 - [인증 API](#인증-api-v1auth)
 - [이벤트 API](#이벤트-api-v1)
 - [개발용 API](#개발용-api-dev)
@@ -189,6 +190,340 @@ Authorization: Bearer <access_token>
 - `404 Not Found`: 리소스 없음
 - `409 Conflict`: 리소스 충돌 (예: 이메일 중복)
 - `500 Internal Server Error`: 서버 오류
+
+---
+
+## Idempotency (멱등성)
+
+### 개요
+
+일부 API 엔드포인트는 네트워크 오류, 타임아웃 등으로 인한 중복 요청을 방지하기 위해 **Idempotency-Key** 헤더를 사용합니다. 같은 키로 동일한 요청을 재시도하면 서버는 저장된 응답을 즉시 반환하여 중복 처리를 방지합니다.
+
+### Idempotency-Key 헤더
+
+**헤더 이름:** `Idempotency-Key`
+
+**헤더 값:** 고유한 문자열 (권장: UUID v4)
+
+**예시:**
+```
+Idempotency-Key: 550e8400-e29b-41d4-a716-446655440000
+```
+
+### 환경별 동작
+
+- **개발 환경**: 헤더가 없으면 자동으로 UUID 생성 (테스트 편의성)
+- **운영 환경**: 헤더가 없으면 `400 Bad Request` 에러 반환
+
+### Idempotency가 적용된 엔드포인트
+
+다음 엔드포인트들은 `Idempotency-Key` 헤더가 **필수**입니다:
+
+#### 제안 생성/수정
+- `POST /v1/events/{event_id}/assumption-proposals` - 전제 제안 생성
+- `POST /v1/events/{event_id}/criteria-proposals` - 기준 제안 생성
+- `POST /v1/events/{event_id}/criteria/{criterion_id}/conclusion-proposals` - 결론 제안 생성
+
+#### 투표
+- `POST /v1/events/{event_id}/assumption-proposals/{proposal_id}/votes` - 전제 제안 투표
+- `POST /v1/events/{event_id}/criteria-proposals/{proposal_id}/votes` - 기준 제안 투표
+- `POST /v1/events/{event_id}/conclusion-proposals/{proposal_id}/votes` - 결론 제안 투표
+- `POST /v1/events/{event_id}/votes` - 최종 투표 생성/업데이트
+
+#### 이벤트 설정 (관리자)
+- `PATCH /v1/events/{event_id}` - 이벤트 설정 수정
+- `PATCH /v1/events/{event_id}/status` - 이벤트 상태 변경
+
+### 동작 방식
+
+#### 1. 최초 요청
+```
+POST /v1/events/{event_id}/votes
+Headers:
+  Authorization: Bearer <token>
+  Idempotency-Key: 550e8400-e29b-41d4-a716-446655440000
+Body:
+  {
+    "option_id": "uuid",
+    "criterion_ids": ["uuid1", "uuid2"]
+  }
+```
+
+서버는 요청을 처리하고 응답을 저장한 후 반환합니다.
+
+#### 2. 재시도 (동일한 키와 요청)
+```
+POST /v1/events/{event_id}/votes
+Headers:
+  Authorization: Bearer <token>
+  Idempotency-Key: 550e8400-e29b-41d4-a716-446655440000
+Body:
+  {
+    "option_id": "uuid",
+    "criterion_ids": ["uuid1", "uuid2"]
+  }
+```
+
+서버는 저장된 응답을 즉시 반환합니다. (중복 처리 없음)
+
+#### 3. 다른 요청에 같은 키 사용 (에러)
+```
+POST /v1/events/{event_id}/votes
+Headers:
+  Authorization: Bearer <token>
+  Idempotency-Key: 550e8400-e29b-41d4-a716-446655440000
+Body:
+  {
+    "option_id": "uuid",
+    "criterion_ids": ["uuid3", "uuid4"]  // 다른 요청
+  }
+```
+
+**응답:** `409 Conflict`
+```json
+{
+  "detail": "Idempotency key reused"
+}
+```
+
+#### 4. 처리 중인 요청 재시도 (에러)
+요청이 아직 처리 중일 때 같은 키로 재시도하면:
+
+**응답:** `409 Conflict`
+```json
+{
+  "detail": "Request in progress"
+}
+```
+
+### 프론트엔드 구현 가이드
+
+#### 1. Idempotency-Key 생성
+
+각 요청마다 고유한 키를 생성합니다. 권장 방법:
+
+```typescript
+// UUID v4 생성 (브라우저)
+function generateIdempotencyKey(): string {
+  return crypto.randomUUID();
+}
+
+// 또는 uuid 라이브러리 사용
+import { v4 as uuidv4 } from 'uuid';
+const idempotencyKey = uuidv4();
+```
+
+#### 2. API 호출 래퍼 함수
+
+```typescript
+async function apiCallWithIdempotency<T>(
+  url: string,
+  options: RequestInit,
+  idempotencyKey?: string
+): Promise<T> {
+  const headers = new Headers(options.headers);
+  
+  // Idempotency-Key가 필요한 엔드포인트인지 확인
+  if (requiresIdempotencyKey(url, options.method)) {
+    if (!idempotencyKey) {
+      idempotencyKey = generateIdempotencyKey();
+    }
+    headers.set('Idempotency-Key', idempotencyKey);
+  }
+  
+  const response = await fetch(url, {
+    ...options,
+    headers,
+  });
+  
+  if (!response.ok) {
+    throw new Error(`API call failed: ${response.status}`);
+  }
+  
+  return response.json();
+}
+
+// Idempotency-Key가 필요한 엔드포인트 확인
+function requiresIdempotencyKey(url: string, method?: string): boolean {
+  if (method !== 'POST' && method !== 'PATCH') {
+    return false;
+  }
+  
+  const idempotencyRequiredPaths = [
+    '/assumption-proposals',
+    '/criteria-proposals',
+    '/conclusion-proposals',
+    '/votes',
+    '/events/',
+  ];
+  
+  return idempotencyRequiredPaths.some(path => url.includes(path));
+}
+```
+
+#### 3. 재시도 로직
+
+네트워크 오류나 타임아웃 발생 시 **같은 키**로 재시도:
+
+```typescript
+async function createVoteWithRetry(
+  eventId: string,
+  voteData: VoteCreateRequest,
+  maxRetries: number = 3
+): Promise<VoteResponse> {
+  const idempotencyKey = generateIdempotencyKey();
+  
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    try {
+      return await apiCallWithIdempotency(
+        `/v1/events/${eventId}/votes`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${getAccessToken()}`,
+          },
+          body: JSON.stringify(voteData),
+        },
+        idempotencyKey // 같은 키로 재시도
+      );
+    } catch (error) {
+      // 네트워크 오류인 경우에만 재시도
+      if (attempt < maxRetries - 1 && isNetworkError(error)) {
+        await delay(1000 * (attempt + 1)); // 지수 백오프
+        continue;
+      }
+      throw error;
+    }
+  }
+  
+  throw new Error('Max retries exceeded');
+}
+```
+
+#### 4. 에러 처리
+
+```typescript
+try {
+  await createVoteWithRetry(eventId, voteData);
+} catch (error) {
+  if (error.response?.status === 409) {
+    const detail = error.response.data?.detail || '';
+    
+    if (detail.includes('Idempotency key reused')) {
+      // 다른 요청에 같은 키를 사용한 경우
+      // 새로운 키로 재시도하거나 사용자에게 알림
+      console.error('Idempotency key conflict. Please try again.');
+    } else if (detail.includes('Request in progress')) {
+      // 요청이 처리 중인 경우
+      // 잠시 후 재시도하거나 사용자에게 대기 알림
+      console.warn('Request is being processed. Please wait.');
+    }
+  }
+  // 다른 에러 처리...
+}
+```
+
+#### 5. React Hook 예시
+
+```typescript
+import { useState } from 'react';
+import { v4 as uuidv4 } from 'uuid';
+
+function useIdempotentApiCall<T>() {
+  const [idempotencyKey, setIdempotencyKey] = useState<string | null>(null);
+  
+  const callApi = async (
+    url: string,
+    options: RequestInit
+  ): Promise<T> => {
+    // 새로운 요청이면 새 키 생성
+    const key = idempotencyKey || uuidv4();
+    setIdempotencyKey(key);
+    
+    const headers = new Headers(options.headers);
+    headers.set('Idempotency-Key', key);
+    
+    try {
+      const response = await fetch(url, {
+        ...options,
+        headers,
+      });
+      
+      if (!response.ok) {
+        throw new Error(`API call failed: ${response.status}`);
+      }
+      
+      const data = await response.json();
+      
+      // 성공 시 키 초기화 (다음 요청을 위해)
+      setIdempotencyKey(null);
+      
+      return data;
+    } catch (error) {
+      // 네트워크 오류 시 키 유지 (재시도 가능)
+      throw error;
+    }
+  };
+  
+  const resetKey = () => {
+    setIdempotencyKey(null);
+  };
+  
+  return { callApi, resetKey };
+}
+
+// 사용 예시
+function VoteButton({ eventId, voteData }: Props) {
+  const { callApi, resetKey } = useIdempotentApiCall<VoteResponse>();
+  const [loading, setLoading] = useState(false);
+  
+  const handleVote = async () => {
+    setLoading(true);
+    try {
+      await callApi(`/v1/events/${eventId}/votes`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify(voteData),
+      });
+      
+      // 성공 시 키가 자동으로 초기화됨
+      alert('투표가 완료되었습니다.');
+    } catch (error) {
+      // 네트워크 오류 시 사용자가 재시도 버튼을 누르면
+      // 같은 키로 자동 재시도됨
+      alert('투표 중 오류가 발생했습니다. 다시 시도해주세요.');
+    } finally {
+      setLoading(false);
+    }
+  };
+  
+  return (
+    <button onClick={handleVote} disabled={loading}>
+      {loading ? '투표 중...' : '투표하기'}
+    </button>
+  );
+}
+```
+
+### 주의사항
+
+1. **키 재사용 금지**: 한 번 사용한 키는 다른 요청에 사용하면 안 됩니다.
+2. **요청 바디 일치**: 같은 키로 재시도할 때는 요청 바디가 완전히 동일해야 합니다.
+3. **키 저장**: 재시도를 위해 키를 일시적으로 저장해두는 것을 권장합니다.
+4. **TTL**: Idempotency 키는 24시간 후 만료됩니다. 만료 후에는 새로운 키를 사용해야 합니다.
+5. **사용자 경험**: 네트워크 오류 시 자동 재시도 로직을 구현하여 사용자 경험을 개선하세요.
+
+### 요약
+
+- ✅ 각 요청마다 고유한 `Idempotency-Key` 생성 (UUID v4 권장)
+- ✅ 네트워크 오류 시 **같은 키**로 재시도
+- ✅ 성공한 요청의 키는 재사용하지 않음
+- ✅ 다른 요청에는 **새로운 키** 사용
+- ✅ `409 Conflict` 에러 시 적절히 처리
 
 ---
 
