@@ -977,7 +977,7 @@ class ProposalService(EventBaseService):
         # 1. 관리자 권한 확인
         event = self.verify_admin(event_id, user_id)
 
-        # 2. 제안 조회 및 검증
+        # 2. 제안 조회 및 검증 (존재 여부, event_id 확인)
         proposal = self.repos.proposal.get_assumption_proposal_by_id(proposal_id)
         if not proposal:
             raise NotFoundError(
@@ -991,30 +991,50 @@ class ProposalService(EventBaseService):
                 detail="Proposal does not belong to this event"
             )
 
-        if proposal.proposal_status != ProposalStatusType.PENDING:
-            raise ValidationError(
-                message="Invalid proposal status",
-                detail="Only PENDING proposals can have their status changed"
-            )
-
         if status not in (ProposalStatusType.ACCEPTED, ProposalStatusType.REJECTED):
             raise ValidationError(
                 message="Invalid status",
                 detail="Status must be ACCEPTED or REJECTED"
             )
 
-        # 3. 상태 변경
+        # 3. 조건부 UPDATE로 상태 변경 (원자성 보장)
         with transaction(self.db):
-            proposal.proposal_status = status
             if status == ProposalStatusType.ACCEPTED:
-                proposal.accepted_at = datetime.now(timezone.utc)
+                accepted_at = datetime.now(timezone.utc)
+                updated_proposal = self.repos.proposal.approve_assumption_proposal_if_pending(
+                    proposal_id, accepted_at
+                )
+            else:
+                updated_proposal = self.repos.proposal.reject_assumption_proposal_if_pending(
+                    proposal_id
+                )
+            
+            # 조건부 UPDATE 실패 (이미 처리됨)
+            if updated_proposal is None:
+                # 현재 상태 확인
+                self.db.refresh(proposal, ['votes'])
+                if proposal.proposal_status == ProposalStatusType.ACCEPTED:
+                    raise ConflictError(
+                        message="Proposal already accepted",
+                        detail="This proposal has already been accepted"
+                    )
+                elif proposal.proposal_status == ProposalStatusType.REJECTED:
+                    raise ConflictError(
+                        message="Proposal already rejected",
+                        detail="This proposal has already been rejected"
+                    )
+                else:
+                    raise ConflictError(
+                        message="Proposal status changed",
+                        detail="Proposal status has changed and cannot be updated"
+                    )
+            
+            # 조건부 UPDATE 성공한 경우에만 후속 처리
+            proposal = updated_proposal
+            if status == ProposalStatusType.ACCEPTED:
                 # 제안 적용
                 self._apply_assumption_proposal(proposal, event)
-            else:
-                # REJECTED는 상태만 변경
-                pass
-
-            self.repos.proposal.update_assumption_proposal(proposal)
+            
             # 응답 생성을 위해 refresh
             self.db.refresh(proposal, ['votes'])
         vote_count = len(proposal.votes) if proposal.votes else 0
@@ -1050,7 +1070,7 @@ class ProposalService(EventBaseService):
         # 1. 관리자 권한 확인
         event = self.verify_admin(event_id, user_id)
 
-        # 2. 제안 조회 및 검증
+        # 2. 제안 조회 및 검증 (존재 여부, event_id 확인)
         proposal = self.repos.proposal.get_criteria_proposal_by_id(proposal_id)
         if not proposal:
             raise NotFoundError(
@@ -1064,30 +1084,50 @@ class ProposalService(EventBaseService):
                 detail="Proposal does not belong to this event"
             )
 
-        if proposal.proposal_status != ProposalStatusType.PENDING:
-            raise ValidationError(
-                message="Invalid proposal status",
-                detail="Only PENDING proposals can have their status changed"
-            )
-
         if status not in (ProposalStatusType.ACCEPTED, ProposalStatusType.REJECTED):
             raise ValidationError(
                 message="Invalid status",
                 detail="Status must be ACCEPTED or REJECTED"
             )
 
-        # 3. 상태 변경
+        # 3. 조건부 UPDATE로 상태 변경 (원자성 보장)
         with transaction(self.db):
-            proposal.proposal_status = status
             if status == ProposalStatusType.ACCEPTED:
-                proposal.accepted_at = datetime.now(timezone.utc)
+                accepted_at = datetime.now(timezone.utc)
+                updated_proposal = self.repos.proposal.approve_criteria_proposal_if_pending(
+                    proposal_id, accepted_at
+                )
+            else:
+                updated_proposal = self.repos.proposal.reject_criteria_proposal_if_pending(
+                    proposal_id
+                )
+            
+            # 조건부 UPDATE 실패 (이미 처리됨)
+            if updated_proposal is None:
+                # 현재 상태 확인
+                self.db.refresh(proposal, ['votes'])
+                if proposal.proposal_status == ProposalStatusType.ACCEPTED:
+                    raise ConflictError(
+                        message="Proposal already accepted",
+                        detail="This proposal has already been accepted"
+                    )
+                elif proposal.proposal_status == ProposalStatusType.REJECTED:
+                    raise ConflictError(
+                        message="Proposal already rejected",
+                        detail="This proposal has already been rejected"
+                    )
+                else:
+                    raise ConflictError(
+                        message="Proposal status changed",
+                        detail="Proposal status has changed and cannot be updated"
+                    )
+            
+            # 조건부 UPDATE 성공한 경우에만 후속 처리
+            proposal = updated_proposal
+            if status == ProposalStatusType.ACCEPTED:
                 # 제안 적용
                 self._apply_criteria_proposal(proposal, event)
-            else:
-                # REJECTED는 상태만 변경
-                pass
-
-            self.repos.proposal.update_criteria_proposal(proposal)
+            
             # 응답 생성을 위해 refresh
             self.db.refresh(proposal, ['votes'])
         vote_count = len(proposal.votes) if proposal.votes else 0
@@ -1123,7 +1163,7 @@ class ProposalService(EventBaseService):
         # 1. 관리자 권한 확인
         event = self.verify_admin(event_id, user_id)
 
-        # 2. 제안 조회 및 검증
+        # 2. 제안 조회 및 검증 (존재 여부, event_id 확인)
         proposal = self.repos.proposal.get_conclusion_proposal_by_id(proposal_id)
         if not proposal:
             raise NotFoundError(
@@ -1139,30 +1179,50 @@ class ProposalService(EventBaseService):
                 detail="Proposal does not belong to this event"
             )
 
-        if proposal.proposal_status != ProposalStatusType.PENDING:
-            raise ValidationError(
-                message="Invalid proposal status",
-                detail="Only PENDING proposals can have their status changed"
-            )
-
         if status not in (ProposalStatusType.ACCEPTED, ProposalStatusType.REJECTED):
             raise ValidationError(
                 message="Invalid status",
                 detail="Status must be ACCEPTED or REJECTED"
             )
 
-        # 3. 상태 변경
+        # 3. 조건부 UPDATE로 상태 변경 (원자성 보장)
         with transaction(self.db):
-            proposal.proposal_status = status
             if status == ProposalStatusType.ACCEPTED:
-                proposal.accepted_at = datetime.now(timezone.utc)
+                accepted_at = datetime.now(timezone.utc)
+                updated_proposal = self.repos.proposal.approve_conclusion_proposal_if_pending(
+                    proposal_id, accepted_at
+                )
+            else:
+                updated_proposal = self.repos.proposal.reject_conclusion_proposal_if_pending(
+                    proposal_id
+                )
+            
+            # 조건부 UPDATE 실패 (이미 처리됨)
+            if updated_proposal is None:
+                # 현재 상태 확인
+                self.db.refresh(proposal, ['votes'])
+                if proposal.proposal_status == ProposalStatusType.ACCEPTED:
+                    raise ConflictError(
+                        message="Proposal already accepted",
+                        detail="This proposal has already been accepted"
+                    )
+                elif proposal.proposal_status == ProposalStatusType.REJECTED:
+                    raise ConflictError(
+                        message="Proposal already rejected",
+                        detail="This proposal has already been rejected"
+                    )
+                else:
+                    raise ConflictError(
+                        message="Proposal status changed",
+                        detail="Proposal status has changed and cannot be updated"
+                    )
+            
+            # 조건부 UPDATE 성공한 경우에만 후속 처리
+            proposal = updated_proposal
+            if status == ProposalStatusType.ACCEPTED:
                 # 제안 적용
                 self._apply_conclusion_proposal(proposal, event)
-            else:
-                # REJECTED는 상태만 변경
-                pass
-
-            self.repos.proposal.update_conclusion_proposal(proposal)
+            
             # 응답 생성을 위해 refresh
             self.db.refresh(proposal, ['votes'])
         vote_count = len(proposal.votes) if proposal.votes else 0

@@ -89,6 +89,14 @@ class CriteriaProposalRepository(ProposalRepositoryGeneric):
             proposal_id, accepted_at, CriteriaProposal
         )
 
+    def reject_criteria_proposal_if_pending(
+        self, proposal_id: UUID
+    ) -> CriteriaProposal | None:
+        """PENDING 상태인 기준 제안을 조건부로 거절"""
+        return self.reject_proposal_if_pending_generic(
+            proposal_id, CriteriaProposal
+        )
+
     def get_user_vote_on_criteria_proposal(
         self,
         proposal_id: UUID,

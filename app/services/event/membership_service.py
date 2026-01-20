@@ -106,11 +106,10 @@ class MembershipService(EventBaseService):
         # 관리자 권한 확인 (base 메서드 사용)
         self.verify_admin(event_id, user_id)
         
-        # 멤버십 조회 및 검증
+        # 멤버십 조회 및 검증 (존재 여부, event_id 확인)
         membership = self._validate_membership_exists_and_belongs_to_event(
             membership_id, event_id
         )
-        self._validate_membership_pending(membership, "approve")
         
         # max_membership 확인
         current_count = self.event_repo.count_accepted_members(event_id)
@@ -122,11 +121,34 @@ class MembershipService(EventBaseService):
                 detail=f"Event has reached maximum membership limit ({event.max_membership})"
             )
         
-        # 승인 처리
+        # 조건부 UPDATE로 승인 처리 (원자성 보장)
         with transaction(self.db):
-            membership.membership_status = MembershipStatusType.ACCEPTED
-            membership.joined_at = datetime.now(timezone.utc)
-            result = self.membership_repo.update_membership(membership)
+            joined_at = datetime.now(timezone.utc)
+            updated_membership = self.membership_repo.approve_membership_if_pending(
+                membership_id, joined_at
+            )
+            
+            # 조건부 UPDATE 실패 (이미 처리됨)
+            if updated_membership is None:
+                # 현재 상태 확인
+                self.db.refresh(membership)
+                if membership.membership_status == MembershipStatusType.ACCEPTED:
+                    raise ConflictError(
+                        message="Membership already approved",
+                        detail="This membership has already been approved"
+                    )
+                elif membership.membership_status == MembershipStatusType.REJECTED:
+                    raise ConflictError(
+                        message="Membership already rejected",
+                        detail="This membership has already been rejected"
+                    )
+                else:
+                    raise ConflictError(
+                        message="Membership status changed",
+                        detail="Membership status has changed and cannot be updated"
+                    )
+            
+            result = updated_membership
         return result
 
     def reject_membership(
@@ -140,16 +162,38 @@ class MembershipService(EventBaseService):
         # 관리자 권한 확인 (base 메서드 사용)
         self.verify_admin(event_id, user_id)
         
-        # 멤버십 조회 및 검증
+        # 멤버십 조회 및 검증 (존재 여부, event_id 확인)
         membership = self._validate_membership_exists_and_belongs_to_event(
             membership_id, event_id
         )
-        self._validate_membership_pending(membership, "reject")
         
-        # 거부 처리
+        # 조건부 UPDATE로 거부 처리 (원자성 보장)
         with transaction(self.db):
-            membership.membership_status = MembershipStatusType.REJECTED
-            result = self.membership_repo.update_membership(membership)
+            updated_membership = self.membership_repo.reject_membership_if_pending(
+                membership_id
+            )
+            
+            # 조건부 UPDATE 실패 (이미 처리됨)
+            if updated_membership is None:
+                # 현재 상태 확인
+                self.db.refresh(membership)
+                if membership.membership_status == MembershipStatusType.ACCEPTED:
+                    raise ConflictError(
+                        message="Membership already approved",
+                        detail="This membership has already been approved"
+                    )
+                elif membership.membership_status == MembershipStatusType.REJECTED:
+                    raise ConflictError(
+                        message="Membership already rejected",
+                        detail="This membership has already been rejected"
+                    )
+                else:
+                    raise ConflictError(
+                        message="Membership status changed",
+                        detail="Membership status has changed and cannot be updated"
+                    )
+            
+            result = updated_membership
         return result
 
     def bulk_approve_memberships(
@@ -183,6 +227,7 @@ class MembershipService(EventBaseService):
         
         approved_count = 0
         failed_count = 0
+        joined_at = datetime.now(timezone.utc)
         
         with transaction(self.db):
             for membership in pending_memberships:
@@ -190,11 +235,18 @@ class MembershipService(EventBaseService):
                     failed_count += 1
                     continue
                 
-                membership.membership_status = MembershipStatusType.ACCEPTED
-                membership.joined_at = datetime.now(timezone.utc)
-                self.membership_repo.update_membership(membership)
-                approved_count += 1
-                current_count += 1
+                # 조건부 UPDATE로 승인 시도
+                updated_membership = self.membership_repo.approve_membership_if_pending(
+                    membership.id, joined_at
+                )
+                
+                # 조건부 UPDATE 성공한 경우만 카운트
+                if updated_membership is not None:
+                    approved_count += 1
+                    current_count += 1
+                else:
+                    # 이미 처리됨 (다른 요청에서 처리된 경우)
+                    failed_count += 1
         
         return {
             "approved_count": approved_count,
@@ -222,9 +274,14 @@ class MembershipService(EventBaseService):
         
         with transaction(self.db):
             for membership in pending_memberships:
-                membership.membership_status = MembershipStatusType.REJECTED
-                self.membership_repo.update_membership(membership)
-                rejected_count += 1
+                # 조건부 UPDATE로 거부 시도
+                updated_membership = self.membership_repo.reject_membership_if_pending(
+                    membership.id
+                )
+                
+                # 조건부 UPDATE 성공한 경우만 카운트
+                if updated_membership is not None:
+                    rejected_count += 1
         
         return {
             "rejected_count": rejected_count,
