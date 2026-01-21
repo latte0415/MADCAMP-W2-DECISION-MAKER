@@ -60,7 +60,13 @@ class AutoApprovalChecker:
                 approved_proposal = approve_if_pending_fn(proposal.id, accepted_at)
                 if approved_proposal:
                     # 승인 성공 시 proposal을 다시 조회하여 관계 로드
-                    self.db.refresh(approved_proposal, ['votes', 'assumption', 'criterion'])
+                    # proposal 타입에 따라 적절한 관계만 refresh
+                    refresh_attrs = ['votes']
+                    if hasattr(approved_proposal, 'assumption'):
+                        refresh_attrs.append('assumption')
+                    if hasattr(approved_proposal, 'criterion'):
+                        refresh_attrs.append('criterion')
+                    self.db.refresh(approved_proposal, refresh_attrs)
                     # 자동 승인 시 즉시 적용
                     apply_proposal_fn(approved_proposal, event)
                     # Outbox 이벤트 생성 (선택)

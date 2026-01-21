@@ -4,6 +4,7 @@ import os
 from datetime import timedelta
 
 from fastapi import APIRouter, Cookie, Depends, HTTPException, Response, status, Query
+from pydantic import EmailStr
 
 from app.dependencies import get_auth_service, get_current_user
 from app.dependencies.auth import get_user_repository
