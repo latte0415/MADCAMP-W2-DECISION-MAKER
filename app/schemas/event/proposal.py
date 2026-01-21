@@ -1,7 +1,8 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, model_validator
 from uuid import UUID
 from datetime import datetime
 from app.models.proposal import ProposalStatusType, ProposalCategoryType
+from app.exceptions import is_korean, translate_message
 
 
 # ============================================================================
@@ -47,6 +48,13 @@ class AssumptionProposalVoteResponse(BaseModel):
 
     class Config:
         from_attributes = True
+    
+    @model_validator(mode='after')
+    def translate_message(self):
+        """언어 설정에 따라 메시지 번역"""
+        if is_korean():
+            self.message = translate_message(self.message)
+        return self
 
 
 # ============================================================================
@@ -88,6 +96,13 @@ class CriteriaProposalVoteResponse(BaseModel):
 
     class Config:
         from_attributes = True
+    
+    @model_validator(mode='after')
+    def translate_message(self):
+        """언어 설정에 따라 메시지 번역"""
+        if is_korean():
+            self.message = translate_message(self.message)
+        return self
 
 
 # ============================================================================
@@ -124,6 +139,13 @@ class ConclusionProposalVoteResponse(BaseModel):
 
     class Config:
         from_attributes = True
+    
+    @model_validator(mode='after')
+    def translate_message(self):
+        """언어 설정에 따라 메시지 번역"""
+        if is_korean():
+            self.message = translate_message(self.message)
+        return self
 
 
 # ============================================================================
