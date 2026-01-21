@@ -115,7 +115,8 @@ class MembershipService(EventBaseService):
                             "user_id": str(user_id),
                             "approved_by": None,  # 자동 승인은 approved_by 없음
                             "is_auto_approved": True  # 자동 승인 표시
-                        }
+                        },
+                        target_event_id=event.id
                     )
             else:
                 # 수동 승인: PENDING 상태로 생성
@@ -197,7 +198,8 @@ class MembershipService(EventBaseService):
                             "user_id": str(updated_membership.user_id),
                             "approved_by": str(user_id),
                             "is_auto_approved": False  # 수동 승인
-                        }
+                        },
+                        target_event_id=event_id
                     )
                 
                 result = updated_membership
@@ -280,7 +282,8 @@ class MembershipService(EventBaseService):
                             "event_id": str(event_id),
                             "user_id": str(updated_membership.user_id),
                             "rejected_by": str(user_id)
-                        }
+                        },
+                        target_event_id=event_id
                     )
                 
                 result = updated_membership

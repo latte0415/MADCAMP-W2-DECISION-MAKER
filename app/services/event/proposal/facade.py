@@ -107,6 +107,17 @@ class ProposalService(EventBaseService):
                 created_proposal = self.repos.proposal.create_assumption_proposal(proposal)
                 # votes 관계를 로드하기 위해 refresh (재조회 대신)
                 self.db.refresh(created_proposal, ['votes'])
+                
+                # Outbox 이벤트 추가 (트랜잭션 내부)
+                if self.outbox_repo:
+                    self.outbox_repo.create_outbox_event(
+                        event_type="proposal.created.v1",
+                        payload={
+                            "proposal_id": str(created_proposal.id),
+                            "proposal_type": "assumption"
+                        },
+                        target_event_id=event_id
+                    )
             vote_count = len(created_proposal.votes) if created_proposal.votes else 0
             has_voted = False  # 새로 생성된 제안이므로 투표 없음
 
@@ -164,7 +175,22 @@ class ProposalService(EventBaseService):
                 assumption_proposal_id=pid,
                 created_by=uid,
             )
-            return self.repos.proposal.create_assumption_proposal_vote(vote)
+            created_vote = self.repos.proposal.create_assumption_proposal_vote(vote)
+            
+            # Outbox 이벤트 추가 (트랜잭션 내부)
+            if self.outbox_repo:
+                proposal = self.repos.proposal.get_assumption_proposal_by_id(pid)
+                if proposal:
+                    self.outbox_repo.create_outbox_event(
+                        event_type="proposal.vote.created.v1",
+                        payload={
+                            "proposal_id": str(pid),
+                            "proposal_type": "assumption"
+                        },
+                        target_event_id=proposal.event_id
+                    )
+            
+            return created_vote
         
         def auto_approve(proposal, event):
             vote_count = len(proposal.votes) if proposal.votes else 0
@@ -185,7 +211,8 @@ class ProposalService(EventBaseService):
                         "proposal_type": "assumption",
                         "event_id": str(p.event_id),
                         "approved_by": None
-                    }
+                    },
+                    target_event_id=p.event_id
                 ) if self.outbox_repo else None,
             )
         
@@ -245,7 +272,21 @@ class ProposalService(EventBaseService):
             return vote
         
         def delete_vote(vote):
+            # Outbox 이벤트 추가를 위해 proposal 조회 (트랜잭션 내부)
+            proposal = self.repos.proposal.get_assumption_proposal_by_id(vote.assumption_proposal_id)
+            
             self.repos.proposal.delete_assumption_proposal_vote(vote)
+            
+            # Outbox 이벤트 추가 (트랜잭션 내부)
+            if self.outbox_repo and proposal:
+                self.outbox_repo.create_outbox_event(
+                    event_type="proposal.vote.deleted.v1",
+                    payload={
+                        "proposal_id": str(vote.assumption_proposal_id),
+                        "proposal_type": "assumption"
+                    },
+                    target_event_id=proposal.event_id
+                )
         
         def auto_approve(proposal, event):
             vote_count = len(proposal.votes) if proposal.votes else 0
@@ -266,7 +307,8 @@ class ProposalService(EventBaseService):
                         "proposal_type": "assumption",
                         "event_id": str(p.event_id),
                         "approved_by": None
-                    }
+                    },
+                    target_event_id=p.event_id
                 ) if self.outbox_repo else None,
             )
         
@@ -434,7 +476,8 @@ class ProposalService(EventBaseService):
                             "proposal_type": "assumption",
                             "event_id": str(approved_proposal.event_id),
                             "approved_by": None  # 자동 승인
-                        }
+                        },
+                        target_event_id=approved_proposal.event_id
                     )
                 # commit은 외부 트랜잭션 매니저가 처리
 
@@ -527,6 +570,17 @@ class ProposalService(EventBaseService):
                 created_proposal = self.repos.proposal.create_criteria_proposal(proposal)
                 # votes 관계를 로드하기 위해 refresh (재조회 대신)
                 self.db.refresh(created_proposal, ['votes'])
+                
+                # Outbox 이벤트 추가 (트랜잭션 내부)
+                if self.outbox_repo:
+                    self.outbox_repo.create_outbox_event(
+                        event_type="proposal.created.v1",
+                        payload={
+                            "proposal_id": str(created_proposal.id),
+                            "proposal_type": "criteria"
+                        },
+                        target_event_id=event_id
+                    )
             vote_count = len(created_proposal.votes) if created_proposal.votes else 0
             has_voted = False  # 새로 생성된 제안이므로 투표 없음
 
@@ -584,7 +638,22 @@ class ProposalService(EventBaseService):
                 criterion_proposal_id=pid,
                 created_by=uid,
             )
-            return self.repos.proposal.create_criteria_proposal_vote(vote)
+            created_vote = self.repos.proposal.create_criteria_proposal_vote(vote)
+            
+            # Outbox 이벤트 추가 (트랜잭션 내부)
+            if self.outbox_repo:
+                proposal = self.repos.proposal.get_criteria_proposal_by_id(pid)
+                if proposal:
+                    self.outbox_repo.create_outbox_event(
+                        event_type="proposal.vote.created.v1",
+                        payload={
+                            "proposal_id": str(pid),
+                            "proposal_type": "criteria"
+                        },
+                        target_event_id=proposal.event_id
+                    )
+            
+            return created_vote
         
         def auto_approve(proposal, event):
             vote_count = len(proposal.votes) if proposal.votes else 0
@@ -605,7 +674,8 @@ class ProposalService(EventBaseService):
                         "proposal_type": "criteria",
                         "event_id": str(p.event_id),
                         "approved_by": None
-                    }
+                    },
+                    target_event_id=p.event_id
                 ) if self.outbox_repo else None,
             )
         
@@ -665,7 +735,21 @@ class ProposalService(EventBaseService):
             return vote
         
         def delete_vote(vote):
+            # Outbox 이벤트 추가를 위해 proposal 조회 (트랜잭션 내부)
+            proposal = self.repos.proposal.get_criteria_proposal_by_id(vote.criterion_proposal_id)
+            
             self.repos.proposal.delete_criteria_proposal_vote(vote)
+            
+            # Outbox 이벤트 추가 (트랜잭션 내부)
+            if self.outbox_repo and proposal:
+                self.outbox_repo.create_outbox_event(
+                    event_type="proposal.vote.deleted.v1",
+                    payload={
+                        "proposal_id": str(vote.criterion_proposal_id),
+                        "proposal_type": "criteria"
+                    },
+                    target_event_id=proposal.event_id
+                )
         
         def auto_approve(proposal, event):
             vote_count = len(proposal.votes) if proposal.votes else 0
@@ -686,7 +770,8 @@ class ProposalService(EventBaseService):
                         "proposal_type": "criteria",
                         "event_id": str(p.event_id),
                         "approved_by": None
-                    }
+                    },
+                    target_event_id=p.event_id
                 ) if self.outbox_repo else None,
             )
         
@@ -854,7 +939,8 @@ class ProposalService(EventBaseService):
                             "proposal_type": "criteria",
                             "event_id": str(approved_proposal.event_id),
                             "approved_by": None  # 자동 승인
-                        }
+                        },
+                        target_event_id=approved_proposal.event_id
                     )
                 # commit은 외부 트랜잭션 매니저가 처리
 
@@ -950,6 +1036,17 @@ class ProposalService(EventBaseService):
                 created_proposal = self.repos.proposal.create_conclusion_proposal(proposal)
                 # votes 관계를 로드하기 위해 refresh
                 self.db.refresh(created_proposal, ['votes'])
+                
+                # Outbox 이벤트 추가 (트랜잭션 내부)
+                if self.outbox_repo:
+                    self.outbox_repo.create_outbox_event(
+                        event_type="proposal.created.v1",
+                        payload={
+                            "proposal_id": str(created_proposal.id),
+                            "proposal_type": "conclusion"
+                        },
+                        target_event_id=event_id
+                    )
             vote_count = len(created_proposal.votes) if created_proposal.votes else 0
             has_voted = False  # 새로 생성된 제안이므로 투표 없음
 
@@ -1011,7 +1108,25 @@ class ProposalService(EventBaseService):
                 conclusion_proposal_id=pid,
                 created_by=uid,
             )
-            return self.repos.proposal.create_conclusion_proposal_vote(vote)
+            created_vote = self.repos.proposal.create_conclusion_proposal_vote(vote)
+            
+            # Outbox 이벤트 추가 (트랜잭션 내부)
+            if self.outbox_repo:
+                proposal = self.repos.proposal.get_conclusion_proposal_by_id(pid)
+                if proposal:
+                    # conclusion proposal의 event_id는 criterion을 통해 조회
+                    criterion = self.repos.criterion.get_by_id(proposal.criterion_id)
+                    if criterion:
+                        self.outbox_repo.create_outbox_event(
+                            event_type="proposal.vote.created.v1",
+                            payload={
+                                "proposal_id": str(pid),
+                                "proposal_type": "conclusion"
+                            },
+                            target_event_id=criterion.event_id
+                        )
+            
+            return created_vote
         
         def auto_approve(proposal, event):
             vote_count = len(proposal.votes) if proposal.votes else 0
@@ -1045,7 +1160,8 @@ class ProposalService(EventBaseService):
                         "proposal_type": "conclusion",
                         "event_id": str(criterion.event_id) if (criterion := self.repos.criterion.get_by_id(p.criterion_id)) else None,
                         "approved_by": None
-                    }
+                    },
+                    target_event_id=criterion.event_id if (criterion := self.repos.criterion.get_by_id(p.criterion_id)) else None
                 ) if self.outbox_repo else None,
             )
         
@@ -1112,7 +1228,24 @@ class ProposalService(EventBaseService):
             return vote
         
         def delete_vote(vote):
+            # Outbox 이벤트 추가를 위해 proposal 조회 (트랜잭션 내부)
+            proposal = self.repos.proposal.get_conclusion_proposal_by_id(vote.conclusion_proposal_id)
+            
             self.repos.proposal.delete_conclusion_proposal_vote(vote)
+            
+            # Outbox 이벤트 추가 (트랜잭션 내부)
+            if self.outbox_repo and proposal:
+                # conclusion proposal의 event_id는 criterion을 통해 조회
+                criterion = self.repos.criterion.get_by_id(proposal.criterion_id)
+                if criterion:
+                    self.outbox_repo.create_outbox_event(
+                        event_type="proposal.vote.deleted.v1",
+                        payload={
+                            "proposal_id": str(vote.conclusion_proposal_id),
+                            "proposal_type": "conclusion"
+                        },
+                        target_event_id=criterion.event_id
+                    )
         
         def auto_approve(proposal, event):
             vote_count = len(proposal.votes) if proposal.votes else 0
@@ -1146,7 +1279,8 @@ class ProposalService(EventBaseService):
                         "proposal_type": "conclusion",
                         "event_id": str(criterion.event_id) if (criterion := self.repos.criterion.get_by_id(p.criterion_id)) else None,
                         "approved_by": None
-                    }
+                    },
+                    target_event_id=criterion.event_id if (criterion := self.repos.criterion.get_by_id(p.criterion_id)) else None
                 ) if self.outbox_repo else None,
             )
         
@@ -1288,7 +1422,8 @@ class ProposalService(EventBaseService):
                                 "proposal_type": "conclusion",
                                 "event_id": str(criterion.event_id),
                                 "approved_by": None  # 자동 승인
-                            }
+                            },
+                            target_event_id=criterion.event_id
                         )
                 # commit은 외부 트랜잭션 매니저가 처리
 
@@ -1342,7 +1477,7 @@ class ProposalService(EventBaseService):
                         "event_id": str(proposal.event_id),
                         key: str(user_id)
                     }
-                    self.outbox_repo.create_outbox_event(event_type=event_type, payload=payload)
+                    self.outbox_repo.create_outbox_event(event_type=event_type, payload=payload, target_event_id=proposal.event_id)
             
             def build_response(proposal, uid):
                 vote_count = len(proposal.votes) if proposal.votes else 0
@@ -1419,7 +1554,7 @@ class ProposalService(EventBaseService):
                         "event_id": str(proposal.event_id),
                         key: str(user_id)
                     }
-                    self.outbox_repo.create_outbox_event(event_type=event_type, payload=payload)
+                    self.outbox_repo.create_outbox_event(event_type=event_type, payload=payload, target_event_id=proposal.event_id)
             
             def build_response(proposal, uid):
                 vote_count = len(proposal.votes) if proposal.votes else 0
@@ -1499,7 +1634,7 @@ class ProposalService(EventBaseService):
                         "event_id": str(criterion.event_id) if criterion else None,
                         key: str(user_id)
                     }
-                    self.outbox_repo.create_outbox_event(event_type=event_type, payload=payload)
+                    self.outbox_repo.create_outbox_event(event_type=event_type, payload=payload, target_event_id=criterion.event_id if criterion else None)
             
             def build_response(proposal, uid):
                 vote_count = len(proposal.votes) if proposal.votes else 0

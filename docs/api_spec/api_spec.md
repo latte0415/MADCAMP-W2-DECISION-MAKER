@@ -84,6 +84,11 @@
 | PATCH | `/v1/events/{event_id}/comments/{comment_id}` | 코멘트 수정 | 🔐 |
 | DELETE | `/v1/events/{event_id}/comments/{comment_id}` | 코멘트 삭제 | 🔐 |
 
+#### 실시간 동기화 관련
+| Method | Endpoint | 설명 | 인증 |
+|--------|----------|------|------|
+| GET | `/v1/events/{event_id}/stream` | 실시간 업데이트 스트림 (SSE) | 🔐 |
+
 #### 투표 관련
 | Method | Endpoint | 설명 | 인증 |
 |--------|----------|------|------|
@@ -1787,6 +1792,62 @@ function VoteButton({ eventId, voteData }: Props) {
 
 **에러:**
 - `403 Forbidden`: 본인이 작성한 코멘트가 아님
+
+---
+
+### GET /v1/events/{event_id}/stream
+
+실시간 업데이트 스트림 (Server-Sent Events)
+
+**인증:** Bearer Token 필수 (ACCEPTED 멤버십 필요)
+
+**Path Parameters:**
+- `event_id` (UUID): 이벤트 ID
+
+**Query Parameters:**
+- `last_event_id` (UUID, 선택): 마지막으로 받은 이벤트 ID (재연결 시 사용)
+
+**Headers:**
+- `Authorization: Bearer <access_token>` (필수)
+- `Last-Event-ID: <event_id>` (재연결 시, 쿼리 파라미터보다 우선)
+
+**Response:** `200 OK` (`text/event-stream`)
+
+**응답 형식**:
+```
+id: <outbox_event_id>
+data: {"id": "...", "event_type": "...", "payload": {...}, "created_at": "..."}
+
+```
+
+**이벤트 타입**:
+- `proposal.created.v1`: Proposal 생성
+  - `payload`: `{"proposal_id": "uuid", "proposal_type": "assumption" | "criteria" | "conclusion"}`
+- `proposal.vote.created.v1`: Proposal 투표 생성
+  - `payload`: `{"proposal_id": "uuid", "proposal_type": "assumption" | "criteria" | "conclusion"}`
+- `proposal.vote.deleted.v1`: Proposal 투표 삭제
+  - `payload`: `{"proposal_id": "uuid", "proposal_type": "assumption" | "criteria" | "conclusion"}`
+- `proposal.approved.v1`: Proposal 승인
+  - `payload`: `{"proposal_id": "uuid", "proposal_type": "assumption" | "criteria" | "conclusion", "event_id": "uuid", "approved_by": "uuid" | null}`
+- `proposal.rejected.v1`: Proposal 거부
+  - `payload`: `{"proposal_id": "uuid", "proposal_type": "assumption" | "criteria" | "conclusion", "event_id": "uuid", "rejected_by": "uuid"}`
+- `comment.created.v1`: 코멘트 생성
+  - `payload`: `{"comment_id": "uuid", "criterion_id": "uuid"}`
+
+**Heartbeat**:
+서버는 30초마다 `: ping` 형태의 heartbeat를 전송합니다.
+
+**재연결**:
+- 네트워크 오류 시 `retry: 5000` 헤더가 전송됩니다.
+- `Last-Event-ID` 헤더 또는 쿼리 파라미터를 사용하여 마지막 이벤트 이후부터 다시 받을 수 있습니다.
+
+**에러:**
+- `403 Forbidden`: ACCEPTED 멤버십이 아님
+
+**참고:**
+- 프론트엔드 사용 가이드는 [`frontend_realtime_guide.md`](../frontend_realtime_guide.md)를 참고하세요.
+- ID 기반 커서를 사용하여 누락/중복 없이 이벤트를 전송합니다.
+- 이벤트는 1초마다 폴링되며, 새로운 이벤트가 있을 때만 전송됩니다.
 
 ---
 

@@ -16,6 +16,7 @@ class OutboxRepository:
         self,
         event_type: str,
         payload: dict,
+        target_event_id: UUID,
         next_retry_at: datetime | None = None
     ) -> OutboxEvent:
         """트랜잭션 내에서 outbox 이벤트 저장"""
@@ -25,6 +26,7 @@ class OutboxRepository:
         event = OutboxEvent(
             event_type=event_type,
             payload=payload,
+            target_event_id=target_event_id,
             status=OutboxStatusType.PENDING,
             attempts=0,
             next_retry_at=next_retry_at
@@ -178,6 +180,49 @@ class OutboxRepository:
             self.db.execute(stmt)
             self.db.flush()
             return True
+
+
+    def get_events_for_sse(
+        self,
+        target_event_id: UUID,
+        last_id: UUID | None,
+        limit: int = 100
+    ) -> list[OutboxEvent]:
+        """
+        SSE 전용 읽기 메서드 (읽기 전용, DONE 표시하지 않음)
+        
+        created_at 기반 커서를 사용하여 시간순 정렬 및 누락/중복 방지
+        Worker 처리 상태(status)와 무관하게 모든 이벤트 조회
+        
+        last_id가 있으면:
+        1. 해당 이벤트의 created_at 조회
+        2. created_at > last_created_at 또는 (created_at = last_created_at AND id > last_id)로 필터링
+        """
+        stmt = (
+            select(OutboxEvent)
+            .where(OutboxEvent.target_event_id == target_event_id)
+            .order_by(OutboxEvent.created_at.asc(), OutboxEvent.id.asc())  # created_at으로 정렬, 동일 시간이면 id로 정렬
+            .limit(limit)
+        )
+        
+        if last_id:
+            # last_id에 해당하는 이벤트의 created_at 조회
+            last_event_stmt = select(OutboxEvent.created_at).where(OutboxEvent.id == last_id)
+            last_event_result = self.db.execute(last_event_stmt)
+            last_created_at = last_event_result.scalar_one_or_none()
+            
+            if last_created_at:
+                # created_at > last_created_at 또는 (created_at = last_created_at AND id > last_id)
+                stmt = stmt.where(
+                    (OutboxEvent.created_at > last_created_at) |
+                    ((OutboxEvent.created_at == last_created_at) & (OutboxEvent.id > last_id))
+                )
+            else:
+                # last_id에 해당하는 이벤트가 없으면 id > last_id로 필터링 (fallback)
+                stmt = stmt.where(OutboxEvent.id > last_id)
+        
+        result = self.db.execute(stmt)
+        return list(result.scalars().all())
 
 
 def get_worker_id() -> str:
