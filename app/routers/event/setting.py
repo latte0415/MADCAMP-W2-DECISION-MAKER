@@ -35,9 +35,10 @@ def get_event_setting(
     event_service: EventService = Depends(get_event_service),
 ) -> EventSettingResponse:
     """
-    이벤트 설정 편집용 정보 조회 API (관리자용)
+    이벤트 설정 편집용 정보 조회 API 
     - 수정하기 위해 보여줘야 할 정보 반환
     - overview와 유사하지만 편집을 위한 모든 정보 포함
+    - 관리자용이었으나, 일반 유저도 볼 수 있게 수정함.
     """
     return event_service.get_event_setting(
         event_id=event_id,
