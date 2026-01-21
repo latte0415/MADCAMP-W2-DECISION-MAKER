@@ -45,3 +45,22 @@ docker compose down -v
 docker compose up -d --build
 ./scripts/db_bootstrap.sh
 docker compose exec api sh -lc 'DATABASE_URL="$DATABASE_URL_OWNER" alembic upgrade head'
+
+
+# events 삭제 (events가 users를 참조하므로 먼저 삭제)
+docker compose exec db sh -lc "psql -U \"\$POSTGRES_USER\" -d \"\$POSTGRES_DB\" -c \"DELETE FROM events;\""
+
+# users 삭제
+docker compose exec db sh -lc "psql -U \"\$POSTGRES_USER\" -d \"\$POSTGRES_DB\" -c \"DELETE FROM users;\""
+
+# 현재 users 확인
+docker compose exec db sh -lc "psql -U \"\$POSTGRES_USER\" -d \"\$POSTGRES_DB\" -c \"SELECT id, email, created_at FROM users ORDER BY created_at DESC;\""
+
+# 특정 이메일의 user 삭제 (관련 events도 함께 삭제됨)
+docker compose exec db sh -lc "psql -U \"\$POSTGRES_USER\" -d \"\$POSTGRES_DB\" -c \"DELETE FROM events WHERE admin_id IN (SELECT id FROM users WHERE email = 'example@email.com'); DELETE FROM users WHERE email = 'example@email.com';\""
+
+# 특정 entrance_code의 event 삭제
+docker compose exec db sh -lc "psql -U \"\$POSTGRES_USER\" -d \"\$POSTGRES_DB\" -c \"DELETE FROM events WHERE entrance_code = 'ABC123';\""
+
+# 현재 events 확인
+docker compose exec db sh -lc "psql -U \"\$POSTGRES_USER\" -d \"\$POSTGRES_DB\" -c \"SELECT id, decision_subject, entrance_code, admin_id, created_at FROM events ORDER BY created_at DESC;\""
