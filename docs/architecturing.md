@@ -132,6 +132,7 @@ services/
     ├── proposal_service.py
     ├── comment_service.py
     ├── vote_service.py
+    ├── stream_service.py  # 실시간 동기화 서비스 (SSE)
     └── __init__.py      # 통합 서비스 (EventService)
 ```
 
@@ -565,6 +566,115 @@ backend/
 
 ---
 
+## 실시간 동기화 (SSE)
+
+### 아키텍처
+
+이벤트의 Proposal 투표 수, 승인/기각 상태 변경, 새로운 Proposal 생성, 코멘트 추가 등을 실시간으로 클라이언트에 전송하기 위해 **Server-Sent Events (SSE)**를 사용합니다.
+
+### Outbox 패턴 활용
+
+**핵심 설계 원칙**:
+1. **ID 기반 커서**: `created_at` 대신 `outbox.id`를 커서로 사용하여 누락/중복 방지
+2. **정규화된 필터링**: `payload->>'event_id'` 대신 `target_event_id` 컬럼 사용
+3. **상태 분리**: Worker 처리 상태(`status`)와 SSE 읽기는 완전 분리
+4. **운영 안정성**: heartbeat, retry, backpressure 등 SSE 프로토콜 디테일 적용
+
+### 아키텍처 다이어그램
+
+```
+┌─────────────┐
+│   Client    │
+│  (Browser)  │
+└──────┬──────┘
+       │ GET /events/{event_id}/stream
+       │ Last-Event-ID: <id>
+       ▼
+┌─────────────────────┐
+│   Router Layer      │
+│  (stream.py)        │
+└──────────┬──────────┘
+           │
+           ▼
+┌─────────────────────┐
+│  Service Layer      │
+│ (StreamService)     │
+└──────────┬──────────┘
+           │
+           ▼
+┌─────────────────────┐
+│ Repository Layer    │
+│ (OutboxRepository)  │
+│ get_events_for_sse()│
+└──────────┬──────────┘
+           │
+           ▼
+┌─────────────────────┐
+│   Database          │
+│ (outbox_events)     │
+│ WHERE target_event_ │
+│   id=:id AND id>:   │
+│   last_id           │
+└─────────────────────┘
+```
+
+### 이벤트 흐름
+
+1. **이벤트 기록**: Proposal/Vote/Comment 생성/수정 시 `OutboxRepository.create_outbox_event()` 호출
+2. **트랜잭션 내부**: 모든 Outbox 이벤트는 트랜잭션 내부에서 기록
+3. **SSE 읽기**: SSE 엔드포인트는 `OutboxRepository.get_events_for_sse()`로 ID 기반 커서로 조회
+4. **상태 분리**: Worker는 `status=PENDING`인 이벤트만 처리하고 `mark_done()`으로 상태 변경 (row 유지)
+
+### 주요 컴포넌트
+
+#### 1. StreamService (`app/services/event/stream_service.py`)
+
+- `get_event_updates()`: ID 기반 커서로 이벤트 조회
+- `format_sse_message()`: SSE 형식으로 변환
+- `format_heartbeat()`: Heartbeat 메시지 생성
+- `format_retry()`: Retry 헤더 생성
+
+#### 2. Stream Router (`app/routers/event/stream.py`)
+
+- `GET /events/{event_id}/stream`: SSE 엔드포인트
+- `Last-Event-ID` 헤더/쿼리 파라미터 지원
+- 30초마다 heartbeat 전송
+- 에러 발생 시 자동 재시도 (5초 간격)
+
+#### 3. OutboxRepository (`app/repositories/outbox_repository.py`)
+
+- `get_events_for_sse()`: SSE 전용 읽기 메서드
+  - ID 기반 커서: `WHERE target_event_id = :id AND id > :last_id`
+  - 상태 조건 없음 (Worker와 분리)
+  - `ORDER BY id ASC LIMIT 100`
+
+### 이벤트 타입
+
+- `proposal.created.v1`: Proposal 생성
+- `proposal.vote.created.v1`: Proposal 투표 생성
+- `proposal.vote.deleted.v1`: Proposal 투표 삭제
+- `proposal.approved.v1`: Proposal 승인
+- `proposal.rejected.v1`: Proposal 거부
+- `comment.created.v1`: 코멘트 생성
+
+### 성능 최적화
+
+1. **인덱스**: `(target_event_id, id)` 복합 인덱스로 효율적 조회
+2. **배치 제한**: 한 번에 최대 100개 이벤트 조회
+3. **Heartbeat**: 30초마다 전송하여 프록시/로드밸런서 idle timeout 방지
+4. **ID 기반 커서**: 누락/중복 없이 정확한 이벤트 순서 보장
+
+### 확장 가능성
+
+향후 Redis Pub/Sub로 전환 가능한 구조:
+- Outbox 이벤트를 Redis로 푸시
+- SSE는 Redis에서 읽어서 전송
+- 다중 인스턴스 환경에서도 동작
+
+자세한 사용법은 [`frontend_realtime_guide.md`](../frontend_realtime_guide.md)를 참고하세요.
+
+---
+
 ## 설계 원칙
 
 ### 1. 관심사의 분리 (Separation of Concerns)
@@ -617,13 +727,17 @@ backend/
 
 ## 확장 가능성
 
+### 구현된 기능
+
+1. **비동기 처리**: Outbox 패턴으로 알림/이메일 발송 (구현됨)
+2. **실시간 동기화**: SSE (Server-Sent Events)로 이벤트 실시간 업데이트 전송 (구현됨)
+
 ### 향후 추가 가능한 기능
 
-1. **비동기 처리**: Outbox 패턴으로 알림/이메일 발송
-2. **캐싱**: Redis를 통한 캐시 레이어
-3. **실시간 동기화**: WebSocket 또는 SSE
-4. **로깅**: 구조화된 로깅 시스템
-5. **모니터링**: 메트릭 수집 및 알림
+1. **캐싱**: Redis를 통한 캐시 레이어
+2. **로깅**: 구조화된 로깅 시스템
+3. **모니터링**: 메트릭 수집 및 알림
+4. **Redis Pub/Sub**: Outbox 이벤트를 Redis로 푸시하여 SSE 성능 향상
 
 ---
 

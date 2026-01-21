@@ -1,6 +1,6 @@
 from fastapi import APIRouter
 
-from app.routers.event import home, creation, entry, detail, setting, comment, vote
+from app.routers.event import home, creation, entry, detail, setting, comment, vote, stream
 
 
 router = APIRouter()
@@ -13,3 +13,4 @@ router.include_router(detail.router)
 router.include_router(setting.router)
 router.include_router(comment.router)
 router.include_router(vote.router)
+router.include_router(stream.router)

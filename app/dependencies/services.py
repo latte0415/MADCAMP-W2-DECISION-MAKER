@@ -8,6 +8,7 @@ from app.services.event.proposal import ProposalService
 from app.services.event.comment_service import CommentService
 from app.services.event.setting_service import EventSettingService
 from app.services.event.vote_service import VoteService
+from app.services.event.stream_service import EventStreamService
 from app.services.idempotency_service import IdempotencyService
 from app.dependencies.aggregate_repositories import EventAggregateRepositories
 from app.repositories.event_repository import EventRepository
@@ -81,9 +82,10 @@ def get_comment_service(
     db: Session = Depends(get_db),
     repos: EventAggregateRepositories = Depends(get_event_aggregate_repositories),
     comment_repo: CommentRepository = Depends(get_comment_repository),
+    outbox_repo: OutboxRepository = Depends(get_outbox_repository),
 ) -> CommentService:
     """CommentService 의존성 주입"""
-    return CommentService(db=db, repos=repos, comment_repo=comment_repo)
+    return CommentService(db=db, repos=repos, comment_repo=comment_repo, outbox_repo=outbox_repo)
 
 
 def get_setting_service(
@@ -102,3 +104,11 @@ def get_vote_service(
 ) -> VoteService:
     """VoteService 의존성 주입"""
     return VoteService(db=db, repos=repos, vote_repo=vote_repo, idempotency_service=idempotency_service)
+
+
+def get_stream_service(
+    db: Session = Depends(get_db),
+    outbox_repo: OutboxRepository = Depends(get_outbox_repository),
+) -> EventStreamService:
+    """EventStreamService 의존성 주입"""
+    return EventStreamService(db=db, outbox_repo=outbox_repo)
