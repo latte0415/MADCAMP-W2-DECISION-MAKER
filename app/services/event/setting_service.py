@@ -36,12 +36,9 @@ class EventSettingService(EventBaseService):
     ) -> EventSettingResponse:
         """
         이벤트 설정 편집용 정보 조회
-        - 관리자 권한 확인 후 설정 정보 반환
+        - 일반 유저도 볼 수 있도록 수정 (이벤트 존재 확인만 수행)
         """
-        # 관리자 권한 확인 및 이벤트 조회 - base 메서드 사용
-        event = self.verify_admin(event_id, user_id)
-        
-        # 모든 관련 데이터 조인하여 조회 - base 메서드 사용
+        # 이벤트 존재 확인 - base 메서드 사용 (없으면 NotFoundError 발생)
         event_with_all = self.get_event_with_all_relations(event_id)
         
         return EventSettingResponse(
