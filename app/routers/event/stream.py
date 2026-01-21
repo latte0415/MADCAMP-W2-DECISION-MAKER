@@ -77,6 +77,7 @@ async def stream_event_updates(
     
     async def event_generator():
         """SSE 이벤트 생성기"""
+        nonlocal last_id  # 외부 스코프의 last_id 변수 참조
         heartbeat_counter = 0
         heartbeat_interval = 30  # 30초마다 heartbeat
         

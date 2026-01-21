@@ -48,6 +48,8 @@ TEST_MODULES = {
     "test_vote": "scripts.test.test_vote",
     "test_event_setting": "scripts.test.test_event_setting",
     "test_membership": "scripts.test.test_membership",
+    "test_stream": "scripts.test.test_stream",
+    "test_stream_2": "scripts.test.test_stream_2",
 }
 
 
