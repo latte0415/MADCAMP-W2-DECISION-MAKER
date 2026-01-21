@@ -17,6 +17,7 @@ from app.schemas.event import (
     MembershipListItemResponse,
 )
 from app.dependencies.auth import get_current_user
+from app.dependencies.idempotency import get_idempotency_key
 from app.dependencies.services import (
     get_event_service,
     get_membership_service,
@@ -74,16 +75,19 @@ def approve_membership(
     membership_id: UUID,
     current_user: User = Depends(get_current_user),
     membership_service: MembershipService = Depends(get_membership_service),
+    idempotency_key: str = Depends(get_idempotency_key),
 ) -> MembershipResponse:
     """
     특정 참가자 참가 승인 API (관리자용)
     - membership_status를 PENDING에서 ACCEPTED로 변경
     - max_membership 초과 시 에러
+    - Idempotency-Key 헤더 필수
     """
     membership = membership_service.approve_membership(
         event_id=event_id,
         membership_id=membership_id,
-        user_id=current_user.id
+        user_id=current_user.id,
+        idempotency_key=idempotency_key
     )
     return MembershipResponse(
         message="Membership approved successfully",
@@ -101,15 +105,18 @@ def reject_membership(
     membership_id: UUID,
     current_user: User = Depends(get_current_user),
     membership_service: MembershipService = Depends(get_membership_service),
+    idempotency_key: str = Depends(get_idempotency_key),
 ) -> MembershipResponse:
     """
     특정 참가자 참가 거부 API (관리자용)
     - membership_status를 PENDING에서 REJECTED로 변경
+    - Idempotency-Key 헤더 필수
     """
     membership = membership_service.reject_membership(
         event_id=event_id,
         membership_id=membership_id,
-        user_id=current_user.id
+        user_id=current_user.id,
+        idempotency_key=idempotency_key
     )
     return MembershipResponse(
         message="Membership rejected successfully",
@@ -179,7 +186,7 @@ def get_event_memberships(
     """
     이벤트의 모든 멤버십 목록 조회 API (관리자용)
     - 현재 참가신청된 사용자 정보 (status와 무관하게 전부)
-    - user_id, membership_id, status, 신청 일시(created_at), 승인 일시(joined_at), is_me, is_admin 반환
+    - user_id, membership_id, name, email, status, 신청 일시(created_at), 승인 일시(joined_at), is_me, is_admin 반환
     """
     # 관리자 권한 확인을 위해 이벤트 조회 (admin_id 확인용)
     event = event_service.verify_admin(event_id, current_user.id)
@@ -194,6 +201,8 @@ def get_event_memberships(
         MembershipListItemResponse(
             user_id=membership.user_id,
             membership_id=membership.id,
+            name=membership.user.name if membership.user else None,
+            email=membership.user.email if membership.user else None,
             status=membership.membership_status,
             created_at=membership.created_at,
             joined_at=membership.joined_at,

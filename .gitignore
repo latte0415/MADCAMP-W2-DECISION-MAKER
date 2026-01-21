@@ -83,4 +83,4 @@ dmypy.json
 *.pyc
 __pycache__/
 
-학습목표.md
+docs/personal/

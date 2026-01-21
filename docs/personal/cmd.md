@@ -12,7 +12,7 @@ API만 재배포하기
 docker compose up -d --build api
 
 마이그레이션
-docker compose exec api sh -lc 'DATABASE_URL="$DATABASE_URL_OWNER" alembic revision --autogenerate -m "add original info at content and delete unique constraint in proposal"'
+docker compose exec api sh -lc 'DATABASE_URL="$DATABASE_URL_OWNER" alembic revision --autogenerate -m "add outbox table"'
 
 docker compose exec api sh -lc 'DATABASE_URL="$DATABASE_URL_OWNER" alembic upgrade head'
 

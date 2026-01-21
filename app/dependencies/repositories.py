@@ -10,6 +10,8 @@ from app.repositories.content.criterion import CriterionRepository
 from app.repositories.content.comment import CommentRepository
 from app.repositories.membership_repository import MembershipRepository
 from app.repositories.vote_repository import VoteRepository
+from app.repositories.idempotency_repository import IdempotencyRepository
+from app.repositories.outbox_repository import OutboxRepository
 
 
 # Aggregate 의존성
@@ -52,3 +54,13 @@ def get_comment_repository(db: Session = Depends(get_db)) -> CommentRepository:
 def get_vote_repository(db: Session = Depends(get_db)) -> VoteRepository:
     """VoteRepository 의존성 주입"""
     return VoteRepository(db)
+
+
+def get_idempotency_repository(db: Session = Depends(get_db)) -> IdempotencyRepository:
+    """IdempotencyRepository 의존성 주입"""
+    return IdempotencyRepository(db)
+
+
+def get_outbox_repository(db: Session = Depends(get_db)) -> OutboxRepository:
+    """OutboxRepository 의존성 주입"""
+    return OutboxRepository(db)

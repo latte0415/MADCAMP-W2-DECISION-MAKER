@@ -373,6 +373,8 @@
     - 출력 받아야 할거
         - user id
         - membership id
+        - name (사용자 이름)
+        - email (사용자 이메일)
         - status
         - 신청 일시 (created_at)
         - 승인 일시 (joined_at)

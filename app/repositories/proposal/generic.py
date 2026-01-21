@@ -73,3 +73,29 @@ class ProposalRepositoryGeneric:
         result = self.db.execute(stmt)
         self.db.flush()
         return result.scalar_one_or_none()
+
+    def reject_proposal_if_pending_generic(
+        self,
+        proposal_id: UUID,
+        proposal_class: Type[ProposalType]
+    ) -> ProposalType | None:
+        """
+        제너릭 조건부 거절
+        - WHERE id = :id AND status = 'PENDING' 조건으로 업데이트
+        - 이미 거절/승인된 경우 None 반환 (중복 거절 방지)
+        - 성공 시 업데이트된 proposal 반환
+        """
+        stmt = (
+            update(proposal_class)
+            .where(
+                proposal_class.id == proposal_id,
+                proposal_class.proposal_status == ProposalStatusType.PENDING
+            )
+            .values(
+                proposal_status=ProposalStatusType.REJECTED
+            )
+            .returning(proposal_class)
+        )
+        result = self.db.execute(stmt)
+        self.db.flush()
+        return result.scalar_one_or_none()

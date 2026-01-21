@@ -2,7 +2,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, status
 
 from app.models import User
-from app.services.event.proposal_service import ProposalService
+from app.services.event.proposal import ProposalService
 from app.services.event import EventService
 from app.schemas.event import (
     EventDetailResponse,
@@ -18,6 +18,7 @@ from app.schemas.event import (
 )
 from app.schemas.event.proposal import ProposalStatusUpdateRequest
 from app.dependencies.auth import get_current_user
+from app.dependencies.idempotency import get_idempotency_key
 from app.dependencies.services import (
     get_event_service,
     get_proposal_service,
@@ -55,16 +56,19 @@ def create_assumption_proposal(
     request: AssumptionProposalCreateRequest,
     current_user: User = Depends(get_current_user),
     proposal_service: ProposalService = Depends(get_proposal_service),
+    idempotency_key: str = Depends(get_idempotency_key),
 ) -> AssumptionProposalResponse:
     """
     전제 제안 생성 API
     - IN_PROGRESS 상태에서만 가능
     - ACCEPTED 멤버십 필요
+    - Idempotency-Key 헤더 필수
     """
     return proposal_service.create_assumption_proposal(
         event_id=event_id,
         request=request,
-        user_id=current_user.id
+        user_id=current_user.id,
+        idempotency_key=idempotency_key
     )
 
 
@@ -123,16 +127,19 @@ def create_criteria_proposal(
     request: CriteriaProposalCreateRequest,
     current_user: User = Depends(get_current_user),
     proposal_service: ProposalService = Depends(get_proposal_service),
+    idempotency_key: str = Depends(get_idempotency_key),
 ) -> CriteriaProposalResponse:
     """
     기준 제안 생성 API
     - IN_PROGRESS 상태에서만 가능
     - ACCEPTED 멤버십 필요
+    - Idempotency-Key 헤더 필수
     """
     return proposal_service.create_criteria_proposal(
         event_id=event_id,
         request=request,
-        user_id=current_user.id
+        user_id=current_user.id,
+        idempotency_key=idempotency_key
     )
 
 
@@ -192,17 +199,20 @@ def create_conclusion_proposal(
     request: ConclusionProposalCreateRequest,
     current_user: User = Depends(get_current_user),
     proposal_service: ProposalService = Depends(get_proposal_service),
+    idempotency_key: str = Depends(get_idempotency_key),
 ) -> ConclusionProposalResponse:
     """
     결론 제안 생성 API
     - IN_PROGRESS 상태에서만 가능
     - ACCEPTED 멤버십 필요
+    - Idempotency-Key 헤더 필수
     """
     return proposal_service.create_conclusion_proposal(
         event_id=event_id,
         criterion_id=criterion_id,
         request=request,
-        user_id=current_user.id
+        user_id=current_user.id,
+        idempotency_key=idempotency_key
     )
 
 
@@ -265,18 +275,21 @@ def update_assumption_proposal_status(
     request: ProposalStatusUpdateRequest,
     current_user: User = Depends(get_current_user),
     proposal_service: ProposalService = Depends(get_proposal_service),
+    idempotency_key: str = Depends(get_idempotency_key),
 ) -> AssumptionProposalResponse:
     """
     전제 제안 상태 변경 API (관리자용)
     - 관리자 권한 필요
     - PENDING 상태만 변경 가능
     - ACCEPTED 시 제안 자동 적용
+    - Idempotency-Key 헤더 필수
     """
     return proposal_service.update_assumption_proposal_status(
         event_id=event_id,
         proposal_id=proposal_id,
         status=request.status,
-        user_id=current_user.id
+        user_id=current_user.id,
+        idempotency_key=idempotency_key
     )
 
 
@@ -290,18 +303,21 @@ def update_criteria_proposal_status(
     request: ProposalStatusUpdateRequest,
     current_user: User = Depends(get_current_user),
     proposal_service: ProposalService = Depends(get_proposal_service),
+    idempotency_key: str = Depends(get_idempotency_key),
 ) -> CriteriaProposalResponse:
     """
     기준 제안 상태 변경 API (관리자용)
     - 관리자 권한 필요
     - PENDING 상태만 변경 가능
     - ACCEPTED 시 제안 자동 적용
+    - Idempotency-Key 헤더 필수
     """
     return proposal_service.update_criteria_proposal_status(
         event_id=event_id,
         proposal_id=proposal_id,
         status=request.status,
-        user_id=current_user.id
+        user_id=current_user.id,
+        idempotency_key=idempotency_key
     )
 
 
@@ -315,16 +331,19 @@ def update_conclusion_proposal_status(
     request: ProposalStatusUpdateRequest,
     current_user: User = Depends(get_current_user),
     proposal_service: ProposalService = Depends(get_proposal_service),
+    idempotency_key: str = Depends(get_idempotency_key),
 ) -> ConclusionProposalResponse:
     """
     결론 제안 상태 변경 API (관리자용)
     - 관리자 권한 필요
     - PENDING 상태만 변경 가능
     - ACCEPTED 시 제안 자동 적용
+    - Idempotency-Key 헤더 필수
     """
     return proposal_service.update_conclusion_proposal_status(
         event_id=event_id,
         proposal_id=proposal_id,
         status=request.status,
-        user_id=current_user.id
+        user_id=current_user.id,
+        idempotency_key=idempotency_key
     )

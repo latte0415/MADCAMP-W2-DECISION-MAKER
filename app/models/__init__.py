@@ -11,6 +11,8 @@ from app.models.vote import (
     OptionVote, CriterionPriority
 )
 from app.models.comment import Comment
+from app.models.idempotency import IdempotencyRecord, IdempotencyStatusType
+from app.models.outbox import OutboxEvent, OutboxStatusType
 
 __all__ = [
     # Auth
@@ -27,4 +29,8 @@ __all__ = [
     "OptionVote", "CriterionPriority",
     # Comment
     "Comment",
+    # Idempotency
+    "IdempotencyRecord", "IdempotencyStatusType",
+    # Outbox
+    "OutboxEvent", "OutboxStatusType",
 ]

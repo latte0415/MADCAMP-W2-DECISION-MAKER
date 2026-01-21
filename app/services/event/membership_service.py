@@ -10,6 +10,9 @@ from app.repositories.event_repository import EventRepository
 from app.dependencies.aggregate_repositories import EventAggregateRepositories
 from app.services.event.base import EventBaseService
 from app.exceptions import NotFoundError, ConflictError, ValidationError
+from app.utils.transaction import transaction
+from app.services.idempotency_service import IdempotencyService
+from app.repositories.outbox_repository import OutboxRepository
 
 
 # 멤버십 상태별 에러 메시지 상수
@@ -28,11 +31,15 @@ class MembershipService(EventBaseService):
         db: Session,
         repos: EventAggregateRepositories,
         membership_repo: MembershipRepository,
-        event_repo: EventRepository
+        event_repo: EventRepository,
+        idempotency_service: IdempotencyService | None = None,
+        outbox_repo: OutboxRepository | None = None
     ):
         super().__init__(db, repos)
         self.membership_repo = membership_repo
         self.event_repo = event_repo
+        self.idempotency_service = idempotency_service
+        self.outbox_repo = outbox_repo
 
     def create_admin_membership(self, event_id: UUID, admin_id: UUID) -> EventMembership:
         """
@@ -46,8 +53,8 @@ class MembershipService(EventBaseService):
             membership_status=MembershipStatusType.ACCEPTED,
             joined_at=datetime.now(timezone.utc),
         )
-        result = self.membership_repo.create_membership(membership)
-        self.db.commit()
+        with transaction(self.db):
+            result = self.membership_repo.create_membership(membership)
         return result
 
     def join_event_by_code(self, entrance_code: str, user_id: UUID) -> tuple[UUID, str]:
@@ -55,7 +62,8 @@ class MembershipService(EventBaseService):
         입장 코드로 이벤트 참가 신청
         - entrance_code로 이벤트 조회
         - 이미 멤버십이 있으면 ConflictError 발생
-        - 없으면 PENDING 상태로 멤버십 생성
+        - 없으면 멤버십 생성
+        - membership_is_auto_approved가 true면 자동 승인
         - 반환: (event_id, message)
         """
         # 입장 코드로 이벤트 조회
@@ -82,76 +90,226 @@ class MembershipService(EventBaseService):
                 detail=detail
             )
         
-        # PENDING 상태로 멤버십 생성
-        membership = EventMembership(
-            user_id=user_id,
-            event_id=event.id,
-            membership_status=MembershipStatusType.PENDING,
-            joined_at=None,  # ACCEPTED가 되면 설정됨
-        )
-        self.membership_repo.create_membership(membership)
-        self.db.commit()
-        return event.id, "정상적으로 신청되었습니다."
+        # 자동 승인 여부 확인
+        is_auto_approved = event.membership_is_auto_approved
+        
+        with transaction(self.db):
+            if is_auto_approved:
+                # 자동 승인: ACCEPTED 상태로 생성
+                joined_at = datetime.now(timezone.utc)
+                membership = EventMembership(
+                    user_id=user_id,
+                    event_id=event.id,
+                    membership_status=MembershipStatusType.ACCEPTED,
+                    joined_at=joined_at,
+                )
+                created_membership = self.membership_repo.create_membership(membership)
+                
+                # Outbox 이벤트 추가 (자동 승인)
+                if self.outbox_repo:
+                    self.outbox_repo.create_outbox_event(
+                        event_type="membership.approved.v1",
+                        payload={
+                            "membership_id": str(created_membership.id),
+                            "event_id": str(event.id),
+                            "user_id": str(user_id),
+                            "approved_by": None,  # 자동 승인은 approved_by 없음
+                            "is_auto_approved": True  # 자동 승인 표시
+                        }
+                    )
+            else:
+                # 수동 승인: PENDING 상태로 생성
+                membership = EventMembership(
+                    user_id=user_id,
+                    event_id=event.id,
+                    membership_status=MembershipStatusType.PENDING,
+                    joined_at=None,
+                )
+                self.membership_repo.create_membership(membership)
+        
+        if is_auto_approved:
+            return event.id, "정상적으로 가입되었습니다."
+        else:
+            return event.id, "정상적으로 신청되었습니다."
 
 
     def approve_membership(
         self,
         event_id: UUID,
         membership_id: UUID,
-        user_id: UUID
+        user_id: UUID,
+        idempotency_key: str | None = None
     ) -> EventMembership:
         """멤버십 승인"""
-        
-        # 관리자 권한 확인 (base 메서드 사용)
-        self.verify_admin(event_id, user_id)
-        
-        # 멤버십 조회 및 검증
-        membership = self._validate_membership_exists_and_belongs_to_event(
-            membership_id, event_id
-        )
-        self._validate_membership_pending(membership, "approve")
-        
-        # max_membership 확인
-        current_count = self.event_repo.count_accepted_members(event_id)
-        event = self.event_repo.get_by_id(event_id)
-        
-        if event and current_count >= event.max_membership:
-            raise ConflictError(
-                message="Membership limit reached",
-                detail=f"Event has reached maximum membership limit ({event.max_membership})"
+        def _execute_approve() -> dict:
+            # 관리자 권한 확인 (base 메서드 사용)
+            self.verify_admin(event_id, user_id)
+            
+            # 멤버십 조회 및 검증 (존재 여부, event_id 확인)
+            membership = self._validate_membership_exists_and_belongs_to_event(
+                membership_id, event_id
             )
+            
+            # max_membership 확인
+            current_count = self.event_repo.count_accepted_members(event_id)
+            event = self.event_repo.get_by_id(event_id)
+            
+            if event and current_count >= event.max_membership:
+                raise ConflictError(
+                    message="Membership limit reached",
+                    detail=f"Event has reached maximum membership limit ({event.max_membership})"
+                )
+            
+            # 조건부 UPDATE로 승인 처리 (원자성 보장)
+            with transaction(self.db):
+                joined_at = datetime.now(timezone.utc)
+                updated_membership = self.membership_repo.approve_membership_if_pending(
+                    membership_id, joined_at
+                )
+                
+                # 조건부 UPDATE 실패 (이미 처리됨)
+                if updated_membership is None:
+                    # 현재 상태 확인
+                    self.db.refresh(membership)
+                    if membership.membership_status == MembershipStatusType.ACCEPTED:
+                        raise ConflictError(
+                            message="Membership already approved",
+                            detail="This membership has already been approved"
+                        )
+                    elif membership.membership_status == MembershipStatusType.REJECTED:
+                        raise ConflictError(
+                            message="Membership already rejected",
+                            detail="This membership has already been rejected"
+                        )
+                    else:
+                        raise ConflictError(
+                            message="Membership status changed",
+                            detail="Membership status has changed and cannot be updated"
+                        )
+                
+                # Outbox 이벤트 추가 (트랜잭션 내부)
+                if self.outbox_repo:
+                    self.outbox_repo.create_outbox_event(
+                        event_type="membership.approved.v1",
+                        payload={
+                            "membership_id": str(updated_membership.id),
+                            "event_id": str(event_id),
+                            "user_id": str(updated_membership.user_id),
+                            "approved_by": str(user_id),
+                            "is_auto_approved": False  # 수동 승인
+                        }
+                    )
+                
+                result = updated_membership
+            return {"id": str(result.id), "membership_status": result.membership_status.value}
         
-        # 승인 처리
-        membership.membership_status = MembershipStatusType.ACCEPTED
-        membership.joined_at = datetime.now(timezone.utc)
-        
-        result = self.membership_repo.update_membership(membership)
-        self.db.commit()
-        return result
+        # Idempotency 적용
+        if self.idempotency_service and idempotency_key:
+            method = "PATCH"
+            path = f"/events/{event_id}/memberships/{membership_id}/approve"
+            body = {}
+            result = self.idempotency_service.run(
+                user_id=user_id,
+                key=idempotency_key,
+                method=method,
+                path=path,
+                body=body,
+                fn=_execute_approve
+            )
+            # 결과에서 membership 조회
+            membership = self.membership_repo.get_by_id(UUID(result["id"]))
+            if not membership:
+                raise NotFoundError(message="Membership not found", detail="Membership not found after approval")
+            return membership
+        else:
+            result = _execute_approve()
+            membership = self.membership_repo.get_by_id(UUID(result["id"]))
+            if not membership:
+                raise NotFoundError(message="Membership not found", detail="Membership not found after approval")
+            return membership
 
     def reject_membership(
         self,
         event_id: UUID,
         membership_id: UUID,
-        user_id: UUID
+        user_id: UUID,
+        idempotency_key: str | None = None
     ) -> EventMembership:
         """멤버십 거부"""
+        def _execute_reject() -> dict:
+            # 관리자 권한 확인 (base 메서드 사용)
+            self.verify_admin(event_id, user_id)
+            
+            # 멤버십 조회 및 검증 (존재 여부, event_id 확인)
+            membership = self._validate_membership_exists_and_belongs_to_event(
+                membership_id, event_id
+            )
+            
+            # 조건부 UPDATE로 거부 처리 (원자성 보장)
+            with transaction(self.db):
+                updated_membership = self.membership_repo.reject_membership_if_pending(
+                    membership_id
+                )
+                
+                # 조건부 UPDATE 실패 (이미 처리됨)
+                if updated_membership is None:
+                    # 현재 상태 확인
+                    self.db.refresh(membership)
+                    if membership.membership_status == MembershipStatusType.ACCEPTED:
+                        raise ConflictError(
+                            message="Membership already approved",
+                            detail="This membership has already been approved"
+                        )
+                    elif membership.membership_status == MembershipStatusType.REJECTED:
+                        raise ConflictError(
+                            message="Membership already rejected",
+                            detail="This membership has already been rejected"
+                        )
+                    else:
+                        raise ConflictError(
+                            message="Membership status changed",
+                            detail="Membership status has changed and cannot be updated"
+                        )
+                
+                # Outbox 이벤트 추가 (트랜잭션 내부)
+                if self.outbox_repo:
+                    self.outbox_repo.create_outbox_event(
+                        event_type="membership.rejected.v1",
+                        payload={
+                            "membership_id": str(updated_membership.id),
+                            "event_id": str(event_id),
+                            "user_id": str(updated_membership.user_id),
+                            "rejected_by": str(user_id)
+                        }
+                    )
+                
+                result = updated_membership
+            return {"id": str(result.id), "membership_status": result.membership_status.value}
         
-        # 관리자 권한 확인 (base 메서드 사용)
-        self.verify_admin(event_id, user_id)
-        
-        # 멤버십 조회 및 검증
-        membership = self._validate_membership_exists_and_belongs_to_event(
-            membership_id, event_id
-        )
-        self._validate_membership_pending(membership, "reject")
-        
-        # 거부 처리
-        membership.membership_status = MembershipStatusType.REJECTED
-        
-        result = self.membership_repo.update_membership(membership)
-        self.db.commit()
-        return result
+        # Idempotency 적용
+        if self.idempotency_service and idempotency_key:
+            method = "PATCH"
+            path = f"/events/{event_id}/memberships/{membership_id}/reject"
+            body = {}
+            result = self.idempotency_service.run(
+                user_id=user_id,
+                key=idempotency_key,
+                method=method,
+                path=path,
+                body=body,
+                fn=_execute_reject
+            )
+            # 결과에서 membership 조회
+            membership = self.membership_repo.get_by_id(UUID(result["id"]))
+            if not membership:
+                raise NotFoundError(message="Membership not found", detail="Membership not found after rejection")
+            return membership
+        else:
+            result = _execute_reject()
+            membership = self.membership_repo.get_by_id(UUID(result["id"]))
+            if not membership:
+                raise NotFoundError(message="Membership not found", detail="Membership not found after rejection")
+            return membership
 
     def bulk_approve_memberships(
         self,
@@ -184,19 +342,27 @@ class MembershipService(EventBaseService):
         
         approved_count = 0
         failed_count = 0
+        joined_at = datetime.now(timezone.utc)
         
-        for membership in pending_memberships:
-            if current_count >= event.max_membership:
-                failed_count += 1
-                continue
-            
-            membership.membership_status = MembershipStatusType.ACCEPTED
-            membership.joined_at = datetime.now(timezone.utc)
-            self.membership_repo.update_membership(membership)
-            approved_count += 1
-            current_count += 1
+        with transaction(self.db):
+            for membership in pending_memberships:
+                if current_count >= event.max_membership:
+                    failed_count += 1
+                    continue
+                
+                # 조건부 UPDATE로 승인 시도
+                updated_membership = self.membership_repo.approve_membership_if_pending(
+                    membership.id, joined_at
+                )
+                
+                # 조건부 UPDATE 성공한 경우만 카운트
+                if updated_membership is not None:
+                    approved_count += 1
+                    current_count += 1
+                else:
+                    # 이미 처리됨 (다른 요청에서 처리된 경우)
+                    failed_count += 1
         
-        self.db.commit()  # 모든 승인 작업을 한 번에 commit
         return {
             "approved_count": approved_count,
             "failed_count": failed_count,
@@ -221,12 +387,17 @@ class MembershipService(EventBaseService):
         
         rejected_count = 0
         
-        for membership in pending_memberships:
-            membership.membership_status = MembershipStatusType.REJECTED
-            self.membership_repo.update_membership(membership)
-            rejected_count += 1
+        with transaction(self.db):
+            for membership in pending_memberships:
+                # 조건부 UPDATE로 거부 시도
+                updated_membership = self.membership_repo.reject_membership_if_pending(
+                    membership.id
+                )
+                
+                # 조건부 UPDATE 성공한 경우만 카운트
+                if updated_membership is not None:
+                    rejected_count += 1
         
-        self.db.commit()  # 모든 거부 작업을 한 번에 commit
         return {
             "rejected_count": rejected_count,
         }

@@ -13,6 +13,7 @@ from app.schemas.event import (
     CriterionAttachRequest,
 )
 from app.exceptions import InternalError
+from app.utils.transaction import transaction
 
 
 class EventCreationService(EventBaseService):
@@ -25,8 +26,8 @@ class EventCreationService(EventBaseService):
     ) -> Event:
         """이벤트 생성"""
         event = self._create_event_from_request(request, admin_id)
-        result = self.repos.event.create_event(event)
-        self.db.commit()
+        with transaction(self.db):
+            result = self.repos.event.create_event(event)
         return result
 
     def attach_options(
@@ -44,8 +45,8 @@ class EventCreationService(EventBaseService):
             )
             for req in option_requests
         ]
-        result = self.repos.option.create_options(options)
-        self.db.commit()
+        with transaction(self.db):
+            result = self.repos.option.create_options(options)
         return result
 
     def attach_assumptions(
@@ -63,8 +64,8 @@ class EventCreationService(EventBaseService):
             )
             for req in assumption_requests
         ]
-        result = self.repos.assumption.create_assumptions(assumptions)
-        self.db.commit()
+        with transaction(self.db):
+            result = self.repos.assumption.create_assumptions(assumptions)
         return result
 
     def attach_criteria(
@@ -82,8 +83,8 @@ class EventCreationService(EventBaseService):
             )
             for req in criterion_requests
         ]
-        result = self.repos.criterion.create_criteria(criteria)
-        self.db.commit()
+        with transaction(self.db):
+            result = self.repos.criterion.create_criteria(criteria)
         return result
 
     def check_entrance_code_availability(self, entrance_code: str) -> bool:

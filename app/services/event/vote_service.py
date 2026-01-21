@@ -18,6 +18,8 @@ from app.schemas.event.vote import (
 from app.schemas.event.common import OptionInfo
 from app.schemas.event.setting import CriterionInfo
 from app.exceptions import NotFoundError, ForbiddenError, ValidationError
+from app.utils.transaction import transaction
+from app.services.idempotency_service import IdempotencyService
 
 
 class VoteService(EventBaseService):
@@ -27,10 +29,12 @@ class VoteService(EventBaseService):
         self,
         db: Session,
         repos: EventAggregateRepositories,
-        vote_repo: VoteRepository
+        vote_repo: VoteRepository,
+        idempotency_service: IdempotencyService | None = None
     ):
         super().__init__(db, repos)
         self.vote_repo = vote_repo
+        self.idempotency_service = idempotency_service
     
     def get_user_vote(
         self,
@@ -110,121 +114,148 @@ class VoteService(EventBaseService):
         event_id: UUID,
         user_id: UUID,
         option_id: UUID,
-        criterion_ids: List[UUID]
+        criterion_ids: List[UUID],
+        idempotency_key: str | None = None
     ) -> VoteResponse:
         """투표 생성 또는 업데이트 (upsert 패턴)"""
-        # 이벤트 조회 및 ACCEPTED 멤버십 확인
-        event = self.get_event_with_all_relations(event_id)
-        self._validate_membership_accepted(user_id, event_id, "vote")
-        
-        # IN_PROGRESS 상태에서만 투표 가능
-        if event.event_status != EventStatusType.IN_PROGRESS:
-            raise ValidationError(
-                message="Event not in progress",
-                detail="Voting is only allowed when event status is IN_PROGRESS"
-            )
-        
-        # option이 해당 event에 속하는지 확인
-        option = self.repos.option.get_by_id(option_id)
-        if not option:
-            raise NotFoundError(
-                message="Option not found",
-                detail=f"Option with id {option_id} not found"
-            )
-        if option.event_id != event_id:
-            raise ValidationError(
-                message="Invalid option",
-                detail=f"Option {option_id} does not belong to event {event_id}"
-            )
-        
-        # criterion_ids의 모든 criterion이 해당 event에 속하는지 확인
-        if not criterion_ids:
-            raise ValidationError(
-                message="Invalid criterion_ids",
-                detail="criterion_ids cannot be empty"
-            )
-        
-        # 중복 확인
-        if len(criterion_ids) != len(set(criterion_ids)):
-            raise ValidationError(
-                message="Invalid criterion_ids",
-                detail="criterion_ids contains duplicates"
-            )
-        
-        # 모든 활성화된 criterion 목록 (삭제되지 않은 것만)
-        active_criteria = [cr for cr in event.criteria if not cr.is_deleted]
-        active_criterion_ids = {cr.id for cr in active_criteria}
-        
-        # 재투표 시 모든 활성화된 criterion이 포함되어야 함
-        provided_criterion_ids = set(criterion_ids)
-        if provided_criterion_ids != active_criterion_ids:
-            missing_criteria = active_criterion_ids - provided_criterion_ids
-            extra_criteria = provided_criterion_ids - active_criterion_ids
-            error_details = []
-            if missing_criteria:
-                error_details.append(f"Missing criteria: {list(missing_criteria)}")
-            if extra_criteria:
-                error_details.append(f"Invalid or deleted criteria: {list(extra_criteria)}")
-            raise ValidationError(
-                message="Invalid criterion_ids",
-                detail=f"All active criteria must be included. {'; '.join(error_details)}"
-            )
-        
-        # 모든 criterion 존재 및 이벤트 소속 확인 (이미 active_criteria에서 확인했지만 추가 검증)
-        for criterion_id in criterion_ids:
-            criterion = self.repos.criterion.get_by_id(criterion_id)
-            if not criterion:
-                raise NotFoundError(
-                    message="Criterion not found",
-                    detail=f"Criterion with id {criterion_id} not found"
-                )
-            if criterion.event_id != event_id:
+        # 기존 로직을 내부 함수로 추출
+        def _execute_vote() -> dict:
+            # 이벤트 조회 및 ACCEPTED 멤버십 확인
+            event = self.get_event_with_all_relations(event_id)
+            self._validate_membership_accepted(user_id, event_id, "vote")
+            
+            # IN_PROGRESS 상태에서만 투표 가능
+            if event.event_status != EventStatusType.IN_PROGRESS:
                 raise ValidationError(
-                    message="Invalid criterion",
-                    detail=f"Criterion {criterion_id} does not belong to event {event_id}"
+                    message="Event not in progress",
+                    detail="Voting is only allowed when event status is IN_PROGRESS"
                 )
-        
-        # 기존 OptionVote 조회 및 삭제 (있는 경우)
-        existing_option_vote = self.vote_repo.get_user_option_vote(event_id, user_id)
-        if existing_option_vote:
-            self.vote_repo.delete_option_vote(existing_option_vote)
-        
-        # 기존 CriterionPriority 조회 및 삭제 (있는 경우)
-        existing_criterion_priorities = self.vote_repo.get_user_criterion_priorities(event_id, user_id)
-        if existing_criterion_priorities:
-            self.vote_repo.delete_criterion_priorities(existing_criterion_priorities)
-        
-        # 새로운 OptionVote 생성
-        new_option_vote = OptionVote(
-            option_id=option_id,
-            created_by=user_id
-        )
-        self.vote_repo.create_option_vote(new_option_vote)
-        
-        # 새로운 CriterionPriority 목록 생성 (순서대로 priority_rank 부여: 인덱스 + 1)
-        new_criterion_priorities = []
-        now = datetime.now(timezone.utc)
-        for index, criterion_id in enumerate(criterion_ids, start=1):
-            priority = CriterionPriority(
-                criterion_id=criterion_id,
-                created_by=user_id,
-                priority_rank=index,
-                updated_at=now  # 업데이트 시간 기록
+            
+            # option이 해당 event에 속하는지 확인
+            option = self.repos.option.get_by_id(option_id)
+            if not option:
+                raise NotFoundError(
+                    message="Option not found",
+                    detail=f"Option with id {option_id} not found"
+                )
+            if option.event_id != event_id:
+                raise ValidationError(
+                    message="Invalid option",
+                    detail=f"Option {option_id} does not belong to event {event_id}"
+                )
+            
+            # criterion_ids의 모든 criterion이 해당 event에 속하는지 확인
+            if not criterion_ids:
+                raise ValidationError(
+                    message="Invalid criterion_ids",
+                    detail="criterion_ids cannot be empty"
+                )
+            
+            # 중복 확인
+            if len(criterion_ids) != len(set(criterion_ids)):
+                raise ValidationError(
+                    message="Invalid criterion_ids",
+                    detail="criterion_ids contains duplicates"
+                )
+            
+            # 모든 활성화된 criterion 목록 (삭제되지 않은 것만)
+            active_criteria = [cr for cr in event.criteria if not cr.is_deleted]
+            active_criterion_ids = {cr.id for cr in active_criteria}
+            
+            # 재투표 시 모든 활성화된 criterion이 포함되어야 함
+            provided_criterion_ids = set(criterion_ids)
+            if provided_criterion_ids != active_criterion_ids:
+                missing_criteria = active_criterion_ids - provided_criterion_ids
+                extra_criteria = provided_criterion_ids - active_criterion_ids
+                error_details = []
+                if missing_criteria:
+                    error_details.append(f"Missing criteria: {list(missing_criteria)}")
+                if extra_criteria:
+                    error_details.append(f"Invalid or deleted criteria: {list(extra_criteria)}")
+                raise ValidationError(
+                    message="Invalid criterion_ids",
+                    detail=f"All active criteria must be included. {'; '.join(error_details)}"
+                )
+            
+            # 모든 criterion 존재 및 이벤트 소속 확인 (이미 active_criteria에서 확인했지만 추가 검증)
+            for criterion_id in criterion_ids:
+                criterion = self.repos.criterion.get_by_id(criterion_id)
+                if not criterion:
+                    raise NotFoundError(
+                        message="Criterion not found",
+                        detail=f"Criterion with id {criterion_id} not found"
+                    )
+                if criterion.event_id != event_id:
+                    raise ValidationError(
+                        message="Invalid criterion",
+                        detail=f"Criterion {criterion_id} does not belong to event {event_id}"
+                    )
+            
+            # 기존 투표 삭제 및 새 투표 생성
+            existing_option_vote = self.vote_repo.get_user_option_vote(event_id, user_id)
+            existing_criterion_priorities = self.vote_repo.get_user_criterion_priorities(event_id, user_id)
+            
+            now = datetime.now(timezone.utc)
+            
+            with transaction(self.db):
+                # 기존 OptionVote 삭제 (있는 경우)
+                if existing_option_vote:
+                    self.vote_repo.delete_option_vote(existing_option_vote)
+                
+                # 기존 CriterionPriority 삭제 (있는 경우)
+                if existing_criterion_priorities:
+                    self.vote_repo.delete_criterion_priorities(existing_criterion_priorities)
+                
+                # 새로운 OptionVote 생성
+                new_option_vote = OptionVote(
+                    option_id=option_id,
+                    created_by=user_id
+                )
+                self.vote_repo.create_option_vote(new_option_vote)
+                
+                # 새로운 CriterionPriority 목록 생성 (순서대로 priority_rank 부여: 인덱스 + 1)
+                new_criterion_priorities = []
+                for index, criterion_id in enumerate(criterion_ids, start=1):
+                    priority = CriterionPriority(
+                        criterion_id=criterion_id,
+                        created_by=user_id,
+                        priority_rank=index,
+                        updated_at=now  # 업데이트 시간 기록
+                    )
+                    new_criterion_priorities.append(priority)
+                
+                self.vote_repo.create_criterion_priorities(new_criterion_priorities)
+            
+            # 응답 반환 (dict 형태로 변환)
+            response = VoteResponse(
+                option_id=new_option_vote.option_id,
+                criterion_order=criterion_ids,
+                created_at=new_option_vote.created_at,
+                updated_at=now
             )
-            new_criterion_priorities.append(priority)
+            return response.model_dump()
         
-        self.vote_repo.create_criterion_priorities(new_criterion_priorities)
-        
-        # 트랜잭션 커밋
-        self.db.commit()
-        
-        # 응답 반환 (기본 투표 정보만)
-        return VoteResponse(
-            option_id=new_option_vote.option_id,
-            criterion_order=criterion_ids,
-            created_at=new_option_vote.created_at,
-            updated_at=now
-        )
+        # Idempotency 적용
+        if self.idempotency_service and idempotency_key:
+            method = "POST"
+            path = f"/events/{event_id}/votes"
+            body = {
+                "option_id": str(option_id),
+                "criterion_ids": [str(cid) for cid in criterion_ids]
+            }
+            result = self.idempotency_service.run(
+                user_id=user_id,
+                key=idempotency_key,
+                method=method,
+                path=path,
+                body=body,
+                fn=_execute_vote
+            )
+            return VoteResponse(**result)
+        else:
+            # Idempotency가 없으면 기존 로직 실행
+            result = _execute_vote()
+            return VoteResponse(**result)
     
     def get_vote_result(
         self,

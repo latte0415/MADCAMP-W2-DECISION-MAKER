@@ -89,6 +89,14 @@ class AssumptionProposalRepository(ProposalRepositoryGeneric):
             proposal_id, accepted_at, AssumptionProposal
         )
 
+    def reject_assumption_proposal_if_pending(
+        self, proposal_id: UUID
+    ) -> AssumptionProposal | None:
+        """PENDING 상태인 전제 제안을 조건부로 거절"""
+        return self.reject_proposal_if_pending_generic(
+            proposal_id, AssumptionProposal
+        )
+
     def get_user_vote_on_assumption_proposal(
         self,
         proposal_id: UUID,

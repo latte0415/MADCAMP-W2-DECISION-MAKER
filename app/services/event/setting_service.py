@@ -16,6 +16,7 @@ from app.schemas.event import (
     CriterionInfo,
 )
 from app.exceptions import NotFoundError, ValidationError
+from app.utils.transaction import transaction
 
 if TYPE_CHECKING:
     from app.schemas.event import (
@@ -87,15 +88,22 @@ class EventSettingService(EventBaseService):
             self._validate_event_not_started(event, "modify options")
             self._update_options(event_id, request.options, user_id)
         
-        # 전제 업데이트 (NOT_STARTED일 때만)
-        if request.assumptions is not None:
-            self._validate_event_not_started(event, "modify assumptions")
-            self._update_assumptions(event_id, request.assumptions, user_id)
+        # 전제 및 기준은 업데이트 불가
+        if request.assumptions is not None or request.criteria is not None:
+            raise ValidationError(
+                message="Assumptions and criteria cannot be modified",
+                detail="Assumptions and criteria cannot be modified"
+            )
+
+        # # 전제 업데이트 (NOT_STARTED일 때만)
+        # if request.assumptions is not None:
+        #     self._validate_event_not_started(event, "modify assumptions")
+        #     self._update_assumptions(event_id, request.assumptions, user_id)
         
-        # 기준 업데이트 (NOT_STARTED일 때만)
-        if request.criteria is not None:
-            self._validate_event_not_started(event, "modify criteria")
-            self._update_criteria(event_id, request.criteria, user_id)
+        # # 기준 업데이트 (NOT_STARTED일 때만)
+        # if request.criteria is not None:
+        #     self._validate_event_not_started(event, "modify criteria")
+        #     self._update_criteria(event_id, request.criteria, user_id)
         
         # 최대 인원 수정 (FINISHED가 아닐 때)
         if request.max_membership is not None:
@@ -136,8 +144,8 @@ class EventSettingService(EventBaseService):
             event.membership_is_auto_approved = request.membership_is_auto_approved
         
         # 이벤트 업데이트
-        result = self.repos.event.update_event(event)
-        self.db.commit()
+        with transaction(self.db):
+            result = self.repos.event.update_event(event)
         return result
 
     def _update_options(
@@ -288,11 +296,10 @@ class EventSettingService(EventBaseService):
             )
 
         # 4. 상태 변경
-        event.event_status = new_status
-        event.updated_at = datetime.now(timezone.utc)
-        
-        result = self.repos.event.update_event(event)
-        self.db.commit()
+        with transaction(self.db):
+            event.event_status = new_status
+            event.updated_at = datetime.now(timezone.utc)
+            result = self.repos.event.update_event(event)
 
         return EventStatusUpdateResponse(
             id=result.id,
