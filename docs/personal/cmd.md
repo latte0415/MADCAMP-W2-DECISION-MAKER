@@ -1,6 +1,7 @@
 서버 접속용
 ssh -i ~/.ssh/LightsailDefaultKey-ap-northeast-2.pem ubuntu@15.164.74.228
 
+madcamp-w2-decision-maker-web.vercel.app
 
 cd /srv/decision_app
 초기화 (DB 하드 리셋 포함)
