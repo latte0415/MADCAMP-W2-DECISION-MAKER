@@ -16,6 +16,7 @@ class OutboxRepository:
         self,
         event_type: str,
         payload: dict,
+        target_event_id: UUID,
         next_retry_at: datetime | None = None
     ) -> OutboxEvent:
         """트랜잭션 내에서 outbox 이벤트 저장"""
@@ -25,6 +26,7 @@ class OutboxRepository:
         event = OutboxEvent(
             event_type=event_type,
             payload=payload,
+            target_event_id=target_event_id,
             status=OutboxStatusType.PENDING,
             attempts=0,
             next_retry_at=next_retry_at
@@ -178,6 +180,32 @@ class OutboxRepository:
             self.db.execute(stmt)
             self.db.flush()
             return True
+
+
+    def get_events_for_sse(
+        self,
+        target_event_id: UUID,
+        last_id: UUID | None,
+        limit: int = 100
+    ) -> list[OutboxEvent]:
+        """
+        SSE 전용 읽기 메서드 (읽기 전용, DONE 표시하지 않음)
+        
+        ID 기반 커서를 사용하여 누락/중복 방지
+        Worker 처리 상태(status)와 무관하게 모든 이벤트 조회
+        """
+        stmt = (
+            select(OutboxEvent)
+            .where(OutboxEvent.target_event_id == target_event_id)
+            .order_by(OutboxEvent.id.asc())
+            .limit(limit)
+        )
+        
+        if last_id:
+            stmt = stmt.where(OutboxEvent.id > last_id)
+        
+        result = self.db.execute(stmt)
+        return list(result.scalars().all())
 
 
 def get_worker_id() -> str:

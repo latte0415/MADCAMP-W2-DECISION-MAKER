@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session, joinedload
 
 from app.models.comment import Comment
 from app.repositories.content.comment import CommentRepository
+from app.repositories.outbox_repository import OutboxRepository
 from app.dependencies.aggregate_repositories import EventAggregateRepositories
 from app.services.event.base import EventBaseService
 from app.exceptions import NotFoundError, ForbiddenError
@@ -17,10 +18,12 @@ class CommentService(EventBaseService):
         self,
         db: Session,
         repos: EventAggregateRepositories,
-        comment_repo: CommentRepository
+        comment_repo: CommentRepository,
+        outbox_repo: OutboxRepository | None = None
     ):
         super().__init__(db, repos)
         self.comment_repo = comment_repo
+        self.outbox_repo = outbox_repo
 
     def get_comment_count(
         self,
@@ -86,6 +89,17 @@ class CommentService(EventBaseService):
             result = self.comment_repo.create_comment(comment)
             # creator 관계 로드
             self.db.refresh(result, ["creator"])
+            
+            # Outbox 이벤트 추가 (트랜잭션 내부)
+            if self.outbox_repo:
+                self.outbox_repo.create_outbox_event(
+                    event_type="comment.created.v1",
+                    payload={
+                        "comment_id": str(result.id),
+                        "criterion_id": str(criterion_id)
+                    },
+                    target_event_id=event_id
+                )
         
         return result
 
