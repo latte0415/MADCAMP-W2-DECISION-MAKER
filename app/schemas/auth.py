@@ -92,3 +92,8 @@ class TokenResponse(BaseModel):
 class MessageResponse(BaseModel):
     """Response for POST /logout, as well as for POST /auth/password-reset/confirm and POST /auth/password-reset/request"""
     message: str
+
+
+class EmailCheckResponse(BaseModel):
+    """Response for GET /auth/check-email"""
+    exists: bool

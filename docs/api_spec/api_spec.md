@@ -26,6 +26,7 @@
 | POST | `/auth/logout` | 로그아웃 | 🍪 |
 | GET | `/auth/me` | 현재 사용자 정보 조회 | 🔐 |
 | PATCH | `/auth/me/name` | 사용자 이름 업데이트 | 🔐 |
+| GET | `/auth/check-email` | 이메일 중복 확인 | ❌ |
 | POST | `/auth/password-reset/request` | 비밀번호 재설정 요청 | ❌ |
 | POST | `/auth/password-reset/confirm` | 비밀번호 재설정 확인 | ❌ |
 
@@ -135,8 +136,8 @@
 
 ### 통계
 
-- **총 구현된 API**: 48개
-  - 인증 API: 9개
+- **총 구현된 API**: 49개
+  - 인증 API: 10개
   - 이벤트 API: 37개
     - 홈/참가: 1개
     - 생성: 3개
@@ -730,6 +731,26 @@ function VoteButton({ eventId, voteData }: Props) {
 **참고:**
 - 회원가입 시 이름은 받지 않으며, 메인 화면에서 팝업으로 요청할 수 있습니다.
 - 이름은 NULL 가능하며, 없을 경우 `null`로 반환됩니다.
+
+---
+
+### GET /auth/check-email
+
+이메일 중복 확인
+
+**Query Parameters:**
+- `email` (EmailStr, 필수): 확인할 이메일 주소
+
+**Response:** `200 OK`
+```json
+{
+  "exists": true
+}
+```
+
+**참고:**
+- 이메일이 존재하면 `exists: true`, 없으면 `exists: false`를 반환합니다.
+- 인증이 필요하지 않습니다.
 
 ---
 

@@ -3,9 +3,11 @@ from __future__ import annotations
 import os
 from datetime import timedelta
 
-from fastapi import APIRouter, Cookie, Depends, HTTPException, Response, status
+from fastapi import APIRouter, Cookie, Depends, HTTPException, Response, status, Query
 
 from app.dependencies import get_auth_service, get_current_user
+from app.dependencies.auth import get_user_repository
+from app.repositories.auth import UserRepository
 from app.schemas.auth import (
     LoginRequest,
     MessageResponse,
@@ -16,6 +18,7 @@ from app.schemas.auth import (
     PasswordResetRequest,
     PasswordResetConfirmRequest,
     UpdateNameRequest,
+    EmailCheckResponse,
 )
 from app.services.auth import (
     AuthService,
@@ -250,3 +253,15 @@ def password_reset_confirm(
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="비활성화된 사용자입니다.")
 
     return MessageResponse(message="비밀번호가 성공적으로 재설정되었습니다.")
+
+
+@router.get("/check-email", response_model=EmailCheckResponse)
+def check_email(
+    email: EmailStr = Query(..., description="확인할 이메일 주소"),
+    user_repo: UserRepository = Depends(get_user_repository),
+) -> EmailCheckResponse:
+    """
+    이메일 주소가 이미 존재하는지 확인합니다.
+    """
+    exists = user_repo.get_by_email(email) is not None
+    return EmailCheckResponse(exists=exists)
