@@ -5,7 +5,8 @@ from __future__ import annotations
 from datetime import datetime
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, model_validator
+from app.exceptions import is_korean, translate_message
 
 
 # -----------------------------
@@ -92,6 +93,13 @@ class TokenResponse(BaseModel):
 class MessageResponse(BaseModel):
     """Response for POST /logout, as well as for POST /auth/password-reset/confirm and POST /auth/password-reset/request"""
     message: str
+    
+    @model_validator(mode='after')
+    def translate_message(self):
+        """언어 설정에 따라 메시지 번역"""
+        if is_korean():
+            self.message = translate_message(self.message)
+        return self
 
 
 class EmailCheckResponse(BaseModel):

@@ -64,3 +64,9 @@ docker compose exec db sh -lc "psql -U \"\$POSTGRES_USER\" -d \"\$POSTGRES_DB\" 
 
 # 현재 events 확인
 docker compose exec db sh -lc "psql -U \"\$POSTGRES_USER\" -d \"\$POSTGRES_DB\" -c \"SELECT id, decision_subject, entrance_code, admin_id, created_at FROM events ORDER BY created_at DESC;\""
+
+# Event 전부 삭제 (CASCADE로 관련 데이터 모두 삭제됨)
+docker compose exec db sh -lc "psql -U \"\$POSTGRES_USER\" -d \"\$POSTGRES_DB\" -c \"DELETE FROM events;\""
+
+# user1@test.com, user2@test.com, user3@test.com 빼고 전부 삭제
+docker compose exec db sh -lc "psql -U \"\$POSTGRES_USER\" -d \"\$POSTGRES_DB\" -c \"DELETE FROM events WHERE admin_id IN (SELECT id FROM users WHERE email NOT IN ('user1@test.com', 'user2@test.com', 'user3@test.com')); DELETE FROM users WHERE email NOT IN ('user1@test.com', 'user2@test.com', 'user3@test.com');\""

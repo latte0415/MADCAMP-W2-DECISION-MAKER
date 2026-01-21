@@ -1,8 +1,9 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from uuid import UUID
 from typing import List
 from app.models.event import MembershipStatusType
 from app.schemas.event.common import OptionInfo, AdminInfo
+from app.exceptions import is_korean, translate_message
 
 
 # ============================================================================
@@ -16,6 +17,13 @@ class EntranceCodeEntryRequest(BaseModel):
 class EventEntryResponse(BaseModel):
     message: str
     event_id: UUID
+    
+    @model_validator(mode='after')
+    def translate_message(self):
+        """언어 설정에 따라 메시지 번역"""
+        if is_korean():
+            self.message = translate_message(self.message)
+        return self
 
 
 # ============================================================================
