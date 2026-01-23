@@ -41,6 +41,6 @@ async def root():
 async def health():
     return {"status": "ok"}
 
-app.include_router(dev_router, prefix="/dev", tags=["dev"])
+# app.include_router(dev_router, prefix="/dev", tags=["dev"])
 app.include_router(auth_router, prefix="/auth", tags=["auth"])
 app.include_router(event_router, prefix="/v1", tags=["events"])
